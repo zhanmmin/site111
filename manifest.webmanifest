@@ -1,0 +1,10 @@
+{
+  "name": "Lumen Pass · 付费内容解锁平台",
+  "short_name": "Lumen Pass",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#071a33",
+  "theme_color": "#071a33",
+  "description": "创作者发布付费图片、网址、文字与密码内容的安全解锁平台。",
+  "icons": []
+}
