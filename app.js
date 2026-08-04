@@ -96,7 +96,9 @@ function modeMediaContent(viewState, compact = false) {
     return `<div class="unlock-content is-visible"><div class="unlock-meta"><span><i class="ph ph-shield-check"></i> 安全授权内容</span><button class="copy-button" type="button" data-action="copy-sensitive"><i class="ph ph-copy"></i> 一键复制</button></div><pre>${escapeHtml(state.sensitiveText)}</pre></div>`;
   }
   if (paid && !expired && state.mode === "link") {
-    return `<div class="unlock-content is-visible"><div class="unlock-meta"><span><i class="ph ph-check-circle"></i> 已解锁普通内容</span><button class="copy-button" type="button" data-action="open-content"><i class="ph ph-arrow-up-right"></i> 安全打开</button></div><a href="${escapeHtml(safeHttpUrl(state.linkContent))}" target="_blank" rel="noopener noreferrer">${escapeHtml(safeHttpUrl(state.linkContent) || "链接内容已解锁")}</a></div>`;
+    const link = safeHttpUrl(state.linkContent);
+    if (link) return `<div class="unlock-content is-visible"><div class="unlock-meta"><span><i class="ph ph-check-circle"></i> 已解锁普通内容</span><button class="copy-button" type="button" data-action="open-content"><i class="ph ph-arrow-up-right"></i> 安全打开</button></div><a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link)}</a></div>`;
+    return `<div class="unlock-content is-visible"><div class="unlock-meta"><span><i class="ph ph-check-circle"></i> 已解锁普通文字</span><button class="copy-button" type="button" data-action="copy-text-content"><i class="ph ph-copy"></i> 一键复制</button></div><pre>${escapeHtml(state.textContent || "文字内容已解锁")}</pre></div>`;
   }
   if (paid && !expired && state.mode === "dual") {
     return `<div class="unlock-content is-visible"><div class="unlock-meta"><span><i class="ph ph-images"></i> 支付后图片</span><span>高清版本已授权</span></div><p class="unlock-message">第二张图片已解锁，可在授权有效期内查看。</p></div>`;
@@ -114,12 +116,13 @@ function renderPreviewCard(target, viewState = "unpaid", modal = false) {
   const processing = viewState === "processing";
   const current = modeLabels[state.mode] || modeLabels.image;
   const displayTitle = state.mode === "image" ? state.title : current.title;
-  const action = paid ? (state.mode === "link" ? "安全打开网址" : "内容已解锁") : expired ? "重新支付查看" : processing ? "正在确认支付" : "立即支付查看";
-  const actionIcon = paid ? (state.mode === "link" ? "ph-arrow-up-right" : "ph-check") : processing ? "ph-spinner-gap" : "ph-credit-card";
-  const buttonAction = paid && state.mode === "link" ? "open-content" : paid ? "noop" : expired ? "simulate-payment" : "simulate-payment";
+  const hasLink = Boolean(safeHttpUrl(state.linkContent));
+  const action = paid ? (state.mode === "link" && hasLink ? "安全打开网址" : "内容已解锁") : expired ? "重新支付查看" : processing ? "正在确认支付" : "立即支付查看";
+  const actionIcon = paid ? (state.mode === "link" && hasLink ? "ph-arrow-up-right" : "ph-check") : processing ? "ph-spinner-gap" : "ph-credit-card";
+  const buttonAction = paid && state.mode === "link" && hasLink ? "open-content" : paid ? "noop" : expired ? "simulate-payment" : "simulate-payment";
   const statusLabel = paid ? "已解锁状态" : expired ? "授权已过期" : processing ? "支付处理中" : "未解锁状态";
   const timeHint = paid ? `<span class="authorization-time"><i class="ph ph-timer"></i> ${getRemainingTime()}</span>` : "";
-  const paymentHint = state.mode === "sensitive" ? "支付成功后才会显示密码文字" : "支付后立即解锁完整内容";
+  const paymentHint = state.mode === "sensitive" ? "支付成功后才会显示密码文字" : state.mode === "link" ? "支付成功后才会显示文字或打开网址" : "支付后立即解锁完整内容";
   const mediaAsset = paid && !expired ? assetUrl("assets/unlocked-preview.png") : assetUrl("assets/locked-preview.png");
   const mediaAlt = paid && !expired ? "已解锁的高清内容" : "受保护的内容预览";
   const media = `<div class="visitor-media ${paid ? "is-unlocked" : ""} ${expired ? "is-expired" : ""}"><img src="${mediaAsset}" alt="${mediaAlt}" />${modeMediaContent(viewState, modal)}</div>`;
@@ -174,6 +177,20 @@ function openModal(id) {
     state.authExpiresAt = null;
     renderVisitorPage();
   }
+}
+
+function updateCreateFields() {
+  const contentFields = $("#create-content-fields");
+  const linkField = $("#create-link-field");
+  const sensitiveField = $("#create-sensitive-field");
+  if (!contentFields || !linkField || !sensitiveField) return;
+  const isLink = createMode === "link";
+  const isSensitive = createMode === "sensitive";
+  contentFields.hidden = !isLink && !isSensitive;
+  linkField.hidden = !isLink;
+  sensitiveField.hidden = !isSensitive;
+  $("[name=linkContent]", linkField).required = isLink;
+  $("[name=sensitiveText]", sensitiveField).required = isSensitive;
 }
 
 function closeModals() {
@@ -232,13 +249,17 @@ function handleAction(action, element) {
     $("#create-form [name=price]").value = formatMoney(state.price);
     $("#create-form [name=rule]").value = state.rule;
     $("#create-form [name=note]").value = state.note;
+    $("#create-form [name=linkContent]").value = state.linkContent || state.textContent || "";
+    $("#create-form [name=sensitiveText]").value = state.sensitiveText || "";
     $$("[data-create-mode]").forEach((button) => button.classList.toggle("is-selected", button.dataset.createMode === createMode));
+    updateCreateFields();
     return openModal("create-modal");
   }
   if (action === "close-modal") return closeModals();
   if (action === "simulate-payment") return startMockPayment();
   if (action === "simulate-failure") { visitorState = "failed"; renderVisitorPage(); showToast("支付未完成，请重新发起支付"); return; }
   if (action === "copy-link") return copyText(state.link, "公开链接已复制");
+  if (action === "copy-text-content") return copyText(state.textContent, "文字内容已复制");
   if (action === "copy-sensitive") return copyText(state.sensitiveText, "敏感文字已复制");
   if (action === "publish") { state.published = true; saveState(); showToast("已发布更新，公开链接保持不变"); return; }
   if (action === "open-content") { const url = safeHttpUrl(state.linkContent); if (url) window.open(url, "_blank", "noopener,noreferrer"); else showToast("链接格式不安全，已阻止打开"); return; }
@@ -257,6 +278,17 @@ function handleCreateSubmit(form) {
   state.price = formatMoney(data.get("price"));
   state.rule = String(data.get("rule") || "window");
   state.note = String(data.get("note") || "").trim();
+  if (createMode === "link") {
+    const linkOrText = String(data.get("linkContent") || "").trim();
+    if (safeHttpUrl(linkOrText)) {
+      state.linkContent = linkOrText;
+      state.textContent = "";
+    } else {
+      state.linkContent = "";
+      state.textContent = linkOrText;
+    }
+  }
+  if (createMode === "sensitive") state.sensitiveText = String(data.get("sensitiveText") || "").trim();
   state.link = `https://lumenpass.com/p/${Math.random().toString(36).slice(2, 8)}`;
   state.published = true;
   saveState();
@@ -273,7 +305,7 @@ document.addEventListener("click", (event) => {
   const ruleButton = event.target.closest("[data-rule]");
   if (ruleButton) { state.rule = ruleButton.dataset.rule; saveState(); renderPublicPreview(); showToast(`访问规则已切换为：${getRuleLabel()}`); return; }
   const createModeButton = event.target.closest("[data-create-mode]");
-  if (createModeButton) { createMode = createModeButton.dataset.createMode; $$("[data-create-mode]").forEach((button) => button.classList.toggle("is-selected", button === createModeButton)); return; }
+  if (createModeButton) { createMode = createModeButton.dataset.createMode; $$("[data-create-mode]").forEach((button) => button.classList.toggle("is-selected", button === createModeButton)); updateCreateFields(); return; }
   const actionButton = event.target.closest("[data-action]");
   if (actionButton) { handleAction(actionButton.dataset.action, actionButton); return; }
   if (event.target.classList.contains("modal-backdrop")) closeModals();
