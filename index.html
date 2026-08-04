@@ -6,12 +6,12 @@
     <meta name="theme-color" content="#071a33" />
     <meta name="description" content="Lumen Pass 加密付费内容网站。" />
     <title>Lumen Pass · 加密付费内容网站</title>
-    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css" />
-    <link rel="stylesheet" href="styles.css?v=20260804public-route" />
+    <link rel="stylesheet" href="/styles.css?v=20260804public-route" />
   </head>
   <body>
     <div class="site-shell">
@@ -92,6 +92,6 @@
     <div class="modal-backdrop" id="visitor-modal" hidden><div class="visitor-modal" role="dialog" aria-modal="true" aria-labelledby="visitor-modal-title"><div class="modal-topline"><span class="brand-lockup-mini"><span class="brand-symbol"><i class="ph ph-sparkle"></i></span>Lumen Pass</span><button class="ghost-icon light" type="button" data-action="close-modal" aria-label="关闭"><i class="ph ph-x"></i></button></div><div class="visitor-page" id="visitor-page"></div></div></div>
     <div class="modal-backdrop" id="create-modal" hidden><div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="create-title"><div class="modal-heading"><div><span class="eyebrow">NEW CONTENT</span><h2 id="create-title">创建一条付费内容</h2><p>填写最少的信息，稍后仍然可以继续编辑。</p></div><button class="ghost-icon" type="button" data-action="close-modal" aria-label="关闭"><i class="ph ph-x"></i></button></div><form id="create-form"><label class="form-label">内容模式<div class="create-modes"><button type="button" class="create-mode is-selected" data-create-mode="image"><i class="ph ph-image"></i><span>图片</span></button><button type="button" class="create-mode" data-create-mode="dual"><i class="ph ph-images"></i><span>双图</span></button><button type="button" class="create-mode" data-create-mode="link"><i class="ph ph-link"></i><span>网址 / 文字</span></button><button type="button" class="create-mode" data-create-mode="sensitive"><i class="ph ph-key"></i><span>密码文字</span></button></div></label><label class="form-label">标题<input name="title" value="城市黄昏摄影作品集" maxlength="60" required /></label><div class="form-two"><label class="form-label">价格<input name="price" value="18.00" inputmode="decimal" required /></label><label class="form-label">访问规则<select name="rule"><option value="window">支付后可查看</option><option value="once">仅查看一次</option><option value="two-hours">2 小时有效</option></select></label></div><div class="create-content-fields" id="create-content-fields" hidden><label class="form-label" id="create-link-field" hidden>网址 / 普通文字<textarea name="linkContent" rows="3" placeholder="输入 https:// 开头的网址，或直接填写要付费展示的文字"></textarea><span class="create-field-hint">支付前隐藏，支付后展示网址或普通文字。</span></label><label class="form-label" id="create-sensitive-field" hidden>密码 / 授权文字<textarea name="sensitiveText" rows="3" placeholder="输入密码、提取码或授权文字"></textarea><span class="create-field-hint">支付前不会展示，支付后只在授权页面中显示。</span></label></div><label class="form-label">创作者寄语<textarea name="note" rows="3">感谢你的支持，这份内容耗费了很多心血。</textarea></label><button class="button button-primary full-width" type="submit"><i class="ph ph-sparkle"></i> 生成安全链接</button></form></div></div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260804public-route"></script>
+    <script src="/app.js?v=20260804public-route"></script>
   </body>
 </html>
