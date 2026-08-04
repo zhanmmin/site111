@@ -3,6 +3,8 @@ const ASSET_ROOT = window.location.protocol === "file:" ? "" : `${window.locatio
 
 const seedState = {
   screen: "content",
+  orderFilter: "all",
+  analyticsPeriod: "30",
   mode: "image",
   rule: "window",
   title: "光的形状",
@@ -14,6 +16,12 @@ const seedState = {
   sensitiveText: "LUMEN-2026\n授权码：N8QF-72KX-PA4M\n有效期：支付后 2 小时",
   published: true,
   contents: [],
+  profile: { displayName: "夜航者", email: "hello@lumenpass.com", bio: "记录光线、城市与被认真对待的内容。" },
+  security: { callbackSignature: true, sensitiveCopy: true, scanUploads: true },
+  payouts: [
+    { date: "2026 年 08 月 01 日", amount: "1,860.00", status: "已到账", method: "微信支付" },
+    { date: "2026 年 07 月 18 日", amount: "2,140.60", status: "已到账", method: "微信支付" },
+  ],
   orders: [
     { id: "LP-240803-0012", customer: "晚风与鲸", content: "光的形状 · 图片", amount: "9.90", time: "2 分钟前", status: "paid", initial: "晚" },
     { id: "LP-240803-0011", customer: "山止川行", content: "私享文章 · 网址", amount: "19.90", time: "18 分钟前", status: "paid", initial: "山" },
@@ -45,6 +53,7 @@ let visitorState = "unpaid";
 let visitorTimer = null;
 let toastTimer = null;
 let createMode = state.mode;
+let editingContentId = null;
 
 function $(selector, scope = document) { return scope.querySelector(selector); }
 function $$(selector, scope = document) { return [...scope.querySelectorAll(selector)]; }
@@ -56,6 +65,9 @@ function loadState() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
     const nextState = saved ? { ...structuredClone(seedState), ...saved } : structuredClone(seedState);
+    nextState.profile = { ...seedState.profile, ...(saved?.profile || {}) };
+    nextState.security = { ...seedState.security, ...(saved?.security || {}) };
+    nextState.payouts = Array.isArray(saved?.payouts) ? saved.payouts : structuredClone(seedState.payouts);
     nextState.link = publicLinkFor(getPublicLinkId(nextState.link) || "7x9kL2");
     return nextState;
   } catch (error) {
@@ -70,7 +82,7 @@ function saveState() {
 }
 
 function formatMoney(value) {
-  const number = Number(value);
+  const number = Number(String(value ?? "").replace(/,/g, ""));
   return Number.isFinite(number) ? number.toFixed(2) : "18.00";
 }
 
@@ -142,16 +154,21 @@ function applyContentRecord(content) {
   state.linkContent = content.linkContent || "";
   state.textContent = content.textContent || "";
   state.sensitiveText = content.sensitiveText || "";
+  state.published = content.status !== "draft";
 }
 
 function renderContentLibrary() {
   const target = $("#content-library");
   if (!target) return;
   const contents = Array.isArray(state.contents) ? state.contents : [];
+  if (!contents.length) {
+    target.innerHTML = '<div class="content-library-empty"><i class="ph ph-folder-open"></i><strong>还没有已发布内容</strong><span>创建第一条内容后，公开链接和状态会显示在这里。</span><button class="button button-outline" type="button" data-action="open-create">新建内容</button></div>';
+    return;
+  }
   target.innerHTML = contents.map((content) => {
     const mode = modeLabels[content.mode] || modeLabels.image;
     const icon = contentModeIcons[content.mode] || contentModeIcons.image;
-    return '<article class="content-library-row"><div class="content-library-main"><span class="content-library-icon"><i class="ph ' + icon + '"></i></span><div><strong>' + escapeHtml(content.title) + '</strong><span>' + escapeHtml(content.id) + ' · 更新于 ' + escapeHtml(content.updated || "刚刚") + '</span></div></div><span class="content-library-mode"><i class="ph ' + icon + '"></i>' + escapeHtml(mode.label) + '</span><strong class="content-library-price">¥ ' + escapeHtml(formatMoney(content.price)) + '</strong><span class="content-library-status"><i class="ph ph-check-circle"></i> 已发布</span><div class="content-library-actions"><button type="button" data-action="view-content" data-content-id="' + escapeHtml(content.id) + '">编辑</button><button type="button" data-action="open-public-link" data-content-id="' + escapeHtml(content.id) + '">打开</button><button type="button" data-action="copy-content-link" data-content-id="' + escapeHtml(content.id) + '">复制链接</button></div></article>';
+    return '<article class="content-library-row"><div class="content-library-main"><span class="content-library-icon"><i class="ph ' + icon + '"></i></span><div><strong>' + escapeHtml(content.title) + '</strong><span>' + escapeHtml(content.id) + ' · 更新于 ' + escapeHtml(content.updated || "刚刚") + '</span></div></div><span class="content-library-mode"><i class="ph ' + icon + '"></i>' + escapeHtml(mode.label) + '</span><strong class="content-library-price">¥ ' + escapeHtml(formatMoney(content.price)) + '<small>' + escapeHtml(String(content.sales || 0)) + ' 次支付</small></strong><span class="content-library-status"><i class="ph ph-check-circle"></i> 已发布</span><div class="content-library-actions"><button type="button" data-action="edit-content" data-content-id="' + escapeHtml(content.id) + '">编辑</button><button type="button" data-action="open-public-link" data-content-id="' + escapeHtml(content.id) + '">打开</button><button type="button" data-action="copy-content-link" data-content-id="' + escapeHtml(content.id) + '">复制链接</button></div></article>';
   }).join("");
 }
 
@@ -246,8 +263,42 @@ function renderVisitorPage() {
 }
 
 function renderOrders() {
+  const filter = state.orderFilter || "all";
+  const filteredOrders = filter === "all" ? state.orders : state.orders.filter((order) => order.status === filter);
   $("#order-total").textContent = String(120 + state.orders.length + 3);
-  $("#order-table").innerHTML = state.orders.map((order) => `<div class="order-row"><div class="order-customer"><span class="order-avatar">${escapeHtml(order.initial)}</span><div><strong>${escapeHtml(order.customer)}</strong><span>${escapeHtml(order.id)}</span></div></div><span>${escapeHtml(order.content)}</span><b>¥ ${escapeHtml(order.amount)}</b><span>${escapeHtml(order.time)}</span><span class="status-badge ${order.status === "paid" ? "success" : "pending"}"><i class="ph ${order.status === "paid" ? "ph-check-circle" : "ph-hourglass-medium"}"></i>${order.status === "paid" ? "已支付" : "处理中"}</span></div>`).join("");
+  $("#order-table").innerHTML = filteredOrders.length ? filteredOrders.map((order) => `<div class="order-row"><div class="order-customer"><span class="order-avatar">${escapeHtml(order.initial)}</span><div><strong>${escapeHtml(order.customer)}</strong><span>${escapeHtml(order.id)}</span></div></div><span>${escapeHtml(order.content)}</span><b>¥ ${escapeHtml(order.amount)}</b><span>${escapeHtml(order.time)}</span><span class="status-badge ${order.status === "paid" ? "success" : "pending"}"><i class="ph ${order.status === "paid" ? "ph-check-circle" : "ph-hourglass-medium"}></i>${order.status === "paid" ? "已支付" : "处理中"}</span></div>`).join("") : `<div class="table-empty"><i class="ph ph-receipt"></i><strong>没有${filter === "paid" ? "已支付" : "处理中"}订单</strong><span>切换筛选条件后可查看其他交易。</span></div>`;
+  $$("[data-order-filter]").forEach((button) => { const active = button.dataset.orderFilter === filter; button.classList.toggle("is-active", active); button.setAttribute("aria-pressed", String(active)); });
+}
+
+function getAnalyticsPeriodLabel(period = state.analyticsPeriod) {
+  return { "7": "最近 7 天", "30": "最近 30 天", "90": "最近 90 天" }[period] || "最近 30 天";
+}
+
+function renderAnalyticsPeriod() {
+  const target = $("#analytics-period-label");
+  if (target) target.textContent = getAnalyticsPeriodLabel();
+  const chart = $("#analytics-chart");
+  if (chart) chart.setAttribute("aria-label", getAnalyticsPeriodLabel() + "收入趋势");
+}
+
+function renderPayoutHistory() {
+  const target = $("#payout-history");
+  if (!target) return;
+  const payouts = Array.isArray(state.payouts) ? state.payouts : [];
+  target.innerHTML = payouts.length ? payouts.map((payout) => `<div class="payout-history-row"><div><strong>${escapeHtml(payout.date)}</strong><span>${escapeHtml(payout.method)}</span></div><b>¥ ${escapeHtml(formatMoney(payout.amount))}</b><span class="status-badge ${payout.status === "已到账" ? "success" : "pending"}"><i class="ph ${payout.status === "已到账" ? "ph-check-circle" : "ph-hourglass-medium"}"></i> ${escapeHtml(payout.status)}</span></div>`).join("") : '<div class="table-empty"><i class="ph ph-wallet"></i><strong>还没有结算记录</strong><span>完成首次提现后，记录会显示在这里。</span></div>';
+}
+
+function renderSettings() {
+  const profile = state.profile || seedState.profile;
+  $("#profile-name").value = profile.displayName || "";
+  $("#profile-email").value = profile.email || "";
+  $("#profile-bio").value = profile.bio || "";
+  const security = state.security || seedState.security;
+  $$("[data-security]").forEach((button) => {
+    const enabled = Boolean(security[button.dataset.security]);
+    button.setAttribute("aria-pressed", String(enabled));
+    button.querySelector(".toggle")?.classList.toggle("is-on", enabled);
+  });
 }
 
 function switchScreen(screen) {
@@ -262,6 +313,9 @@ function switchScreen(screen) {
   header?.classList.remove("is-nav-open");
   menuButton?.setAttribute("aria-expanded", "false");
   if (screen === "orders") renderOrders();
+  if (screen === "analytics") renderAnalyticsPeriod();
+  if (screen === "payout") renderPayoutHistory();
+  if (screen === "settings") renderSettings();
 }
 
 function openModal(id) {
@@ -284,8 +338,30 @@ function updateCreateFields() {
   contentFields.hidden = !isLink && !isSensitive;
   linkField.hidden = !isLink;
   sensitiveField.hidden = !isSensitive;
-  $("[name=linkContent]", linkField).required = isLink;
-  $("[name=sensitiveText]", sensitiveField).required = isSensitive;
+}
+
+function setCreateFormError(message = "") {
+  const target = $("#create-form-error");
+  if (!target) return;
+  target.textContent = message;
+  target.hidden = !message;
+}
+
+function openCreateForm(content = null) {
+  editingContentId = content?.id || null;
+  createMode = content?.mode || state.mode;
+  $("#create-title").textContent = editingContentId ? "编辑付费内容" : "创建一条付费内容";
+  $("#create-submit-label").innerHTML = '<i class="ph ' + (editingContentId ? "ph-check" : "ph-sparkle") + '"></i> ' + (editingContentId ? "保存内容" : "生成安全链接");
+  $("#create-form [name=title]").value = content?.title || modeLabels[createMode].title;
+  $("#create-form [name=price]").value = formatMoney(content?.price || state.price);
+  $("#create-form [name=rule]").value = content?.rule || state.rule;
+  $("#create-form [name=note]").value = content?.note || seedState.note;
+  $("#create-form [name=linkContent]").value = content?.linkContent || content?.textContent || "";
+  $("#create-form [name=sensitiveText]").value = content?.sensitiveText || "";
+  setCreateFormError("");
+  $$('[data-create-mode]').forEach((button) => button.classList.toggle("is-selected", button.dataset.createMode === createMode));
+  updateCreateFields();
+  openModal("create-modal");
 }
 
 function closeModals() {
@@ -338,18 +414,7 @@ function handleAction(action, element) {
     return;
   }
   if (action === "open-visitor") return openModal("visitor-modal");
-  if (action === "open-create") {
-    createMode = state.mode;
-    $("#create-form [name=title]").value = state.title;
-    $("#create-form [name=price]").value = formatMoney(state.price);
-    $("#create-form [name=rule]").value = state.rule;
-    $("#create-form [name=note]").value = state.note;
-    $("#create-form [name=linkContent]").value = state.linkContent || state.textContent || "";
-    $("#create-form [name=sensitiveText]").value = state.sensitiveText || "";
-    $$("[data-create-mode]").forEach((button) => button.classList.toggle("is-selected", button.dataset.createMode === createMode));
-    updateCreateFields();
-    return openModal("create-modal");
-  }
+  if (action === "open-create") return openCreateForm();
   if (action === "close-modal") return closeModals();
   if (action === "simulate-payment") return startMockPayment();
   if (action === "simulate-failure") { visitorState = "failed"; renderVisitorPage(); showToast("支付未完成，请重新发起支付"); return; }
@@ -360,14 +425,14 @@ function handleAction(action, element) {
     const content = findContentById(element.dataset.contentId);
     return content ? copyText(publicLinkFor(content.id), "公开链接已复制") : showToast("内容链接不存在");
   }
-  if (action === "view-content") {
+  if (action === "edit-content") {
     const content = findContentById(element.dataset.contentId);
     if (!content) return showToast("内容不存在");
     applyContentRecord(content);
     saveState();
     renderPublicPreview();
     renderContentLibrary();
-    showToast("已切换到：" + content.title);
+    openCreateForm(content);
     return;
   }
   if (action === "open-public-link") {
@@ -379,24 +444,62 @@ function handleAction(action, element) {
     return;
   }
   if (action === "publish") { state.published = true; syncCurrentContentRecord(); saveState(); renderContentLibrary(); showToast("已发布更新，公开链接保持不变"); return; }
+  if (action === "cycle-analytics-period") {
+    const periods = ["7", "30", "90"];
+    const nextPeriod = periods[(periods.indexOf(state.analyticsPeriod || "30") + 1) % periods.length];
+    state.analyticsPeriod = nextPeriod;
+    saveState();
+    renderAnalyticsPeriod();
+    showToast("数据范围已切换为：" + getAnalyticsPeriodLabel());
+    return;
+  }
   if (action === "open-content") { const url = safeHttpUrl(state.linkContent); if (url) window.open(url, "_blank", "noopener,noreferrer"); else showToast("链接格式不安全，已阻止打开"); return; }
   if (["open-guide", "open-account", "show-security", "open-cover", "edit-note", "open-advanced", "report-content", "share-wechat", "share-moments", "share-weibo"].includes(action)) { showToast({ "open-guide": "新手指南：从创建内容到支付回调，四步即可发布", "open-account": "当前工作区：夜航者", "show-security": "安全策略已启用：加密存储、签名回调、授权过期", "open-cover": "封面图片已接入安全存储", "edit-note": "创作者寄语已在预览中同步", "open-advanced": "高级选项将在正式接入支付后开放", "report-content": "感谢反馈，我们会在 24 小时内处理", "share-wechat": "微信分享卡片已准备好", "share-moments": "朋友圈分享卡片已准备好", "share-weibo": "微博分享链接已准备好" }[action]); return; }
-  if (action === "withdraw") { showToast("提现申请已创建，Mock Provider 将在下一结算日处理"); return; }
+  if (action === "withdraw") { state.payouts.unshift({ date: "刚刚", amount: "2,408.60", status: "处理中", method: "微信支付" }); saveState(); renderPayoutHistory(); showToast("提现申请已创建，正在等待结算"); return; }
   if (action === "edit-provider") { showToast("Mock Payment Provider 已连接，支持替换为真实支付服务"); return; }
-  if (action === "export-orders") { copyText("Lumen Pass 订单导出：128 笔，已支付 127 笔，处理中 1 笔", "订单摘要已复制"); return; }
-  if (action === "save-settings") { showToast("工作区设置已保存"); return; }
-  if (action === "toggle-security") { element.querySelector(".toggle")?.classList.toggle("is-on"); showToast("安全策略已更新"); return; }
+  if (action === "export-orders") { copyText("Lumen Pass 订单导出：" + state.orders.length + " 笔，已支付 " + state.orders.filter((order) => order.status === "paid").length + " 笔，处理中 " + state.orders.filter((order) => order.status === "pending").length + " 笔", "订单摘要已复制"); return; }
+  if (action === "export-payouts") { const payoutTotal = state.payouts.reduce((total, payout) => total + (Number(String(payout.amount).replace(/,/g, "")) || 0), 0); copyText("Lumen Pass 结算记录：" + state.payouts.length + " 笔，合计 ¥" + formatMoney(payoutTotal), "结算摘要已复制"); return; }
+  if (action === "save-settings") {
+    state.profile = {
+      displayName: $("#profile-name").value.trim(),
+      email: $("#profile-email").value.trim(),
+      bio: $("#profile-bio").value.trim(),
+    };
+    saveState();
+    showToast("工作区设置已保存");
+    return;
+  }
+  if (action === "toggle-security") {
+    const key = element.dataset.security;
+    if (key) {
+      state.security[key] = !state.security[key];
+      saveState();
+      renderSettings();
+      showToast("安全策略已更新");
+    }
+    return;
+  }
 }
 
 function handleCreateSubmit(form) {
   const data = new FormData(form);
+  const title = String(data.get("title") || "").trim();
+  const rawPrice = String(data.get("price") || "").trim();
+  const numericPrice = Number(rawPrice);
+  const linkOrText = String(data.get("linkContent") || "").trim();
+  const sensitiveText = String(data.get("sensitiveText") || "").trim();
+  if (!title) return setCreateFormError("请填写内容标题");
+  if (!Number.isFinite(numericPrice) || numericPrice <= 0) return setCreateFormError("价格需要大于 0 元");
+  if (createMode === "link" && !linkOrText) return setCreateFormError("请填写要展示的网址或普通文字");
+  if (createMode === "sensitive" && !sensitiveText) return setCreateFormError("请填写支付后展示的密码或授权文字");
+  setCreateFormError("");
+  const wasEditing = Boolean(editingContentId);
   state.mode = createMode;
-  state.title = String(data.get("title") || modeLabels[createMode].title).trim();
-  state.price = formatMoney(data.get("price"));
+  state.title = title;
+  state.price = formatMoney(numericPrice);
   state.rule = String(data.get("rule") || "window");
   state.note = String(data.get("note") || "").trim();
   if (createMode === "link") {
-    const linkOrText = String(data.get("linkContent") || "").trim();
     if (safeHttpUrl(linkOrText)) {
       state.linkContent = linkOrText;
       state.textContent = "";
@@ -405,20 +508,30 @@ function handleCreateSubmit(form) {
       state.textContent = linkOrText;
     }
   }
-  if (createMode === "sensitive") state.sensitiveText = String(data.get("sensitiveText") || "").trim();
-  state.link = publicLinkFor(Math.random().toString(36).slice(2, 8));
+  if (createMode !== "link") { state.linkContent = ""; state.textContent = ""; }
+  if (createMode === "sensitive") state.sensitiveText = sensitiveText;
+  if (createMode !== "sensitive") state.sensitiveText = "";
+  state.link = wasEditing ? publicLinkFor(editingContentId) : publicLinkFor(Math.random().toString(36).slice(2, 8));
   state.published = true;
   syncCurrentContentRecord();
+  editingContentId = null;
   saveState();
   closeModals();
   renderPublicPreview();
   renderContentLibrary();
-  showToast("安全链接已生成，可继续调整访问设置");
+  showToast(wasEditing ? "内容已保存，公开链接保持不变" : "安全链接已生成，可继续调整访问设置");
 }
 
 document.addEventListener("click", (event) => {
   const screenButton = event.target.closest("[data-screen]");
   if (screenButton) { switchScreen(screenButton.dataset.screen); return; }
+  const orderFilterButton = event.target.closest("[data-order-filter]");
+  if (orderFilterButton) {
+    state.orderFilter = orderFilterButton.dataset.orderFilter;
+    saveState();
+    renderOrders();
+    return;
+  }
   const modeButton = event.target.closest("[data-mode]");
   if (modeButton) { state.mode = modeButton.dataset.mode; state.title = modeLabels[state.mode].title; syncCurrentContentRecord(); saveState(); renderPublicPreview(); renderContentLibrary(); return; }
   const ruleButton = event.target.closest("[data-rule]");
@@ -431,7 +544,19 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("change", (event) => {
-  if (event.target.matches("#price-input")) { state.price = formatMoney(event.target.value); syncCurrentContentRecord(); saveState(); renderPublicPreview(); renderContentLibrary(); }
+  if (event.target.matches("#price-input")) {
+    const nextPrice = Number(event.target.value);
+    if (!Number.isFinite(nextPrice) || nextPrice <= 0) {
+      event.target.value = formatMoney(state.price);
+      showToast("价格需要大于 0 元");
+      return;
+    }
+    state.price = formatMoney(nextPrice);
+    syncCurrentContentRecord();
+    saveState();
+    renderPublicPreview();
+    renderContentLibrary();
+  }
 });
 
 $("#create-form")?.addEventListener("submit", (event) => { event.preventDefault(); handleCreateSubmit(event.currentTarget); });
@@ -458,5 +583,8 @@ if (PUBLIC_CONTENT_ID) {
   renderPublicPreview();
   renderContentLibrary();
   renderOrders();
+  renderAnalyticsPeriod();
+  renderPayoutHistory();
+  renderSettings();
   switchScreen(state.screen || "content");
 }
