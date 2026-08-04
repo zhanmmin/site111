@@ -29,7 +29,12 @@ const modeLabels = {
   sensitive: { label: "密码文字", title: "摄影师通行码", description: "支付后查看密码、提取码或授权文字" },
 };
 
+const PUBLIC_CONTENT_ID = getPublicContentId();
 let state = loadState();
+if (PUBLIC_CONTENT_ID && getPublicLinkId(state.link) !== PUBLIC_CONTENT_ID) {
+  state = structuredClone(seedState);
+  state.link = publicLinkFor(PUBLIC_CONTENT_ID);
+}
 let visitorState = "unpaid";
 let visitorTimer = null;
 let toastTimer = null;
@@ -44,9 +49,13 @@ function escapeHtml(value) {
 function loadState() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-    return saved ? { ...seedState, ...saved } : structuredClone(seedState);
+    const nextState = saved ? { ...structuredClone(seedState), ...saved } : structuredClone(seedState);
+    nextState.link = publicLinkFor(getPublicLinkId(nextState.link) || "7x9kL2");
+    return nextState;
   } catch (error) {
-    return structuredClone(seedState);
+    const nextState = structuredClone(seedState);
+    nextState.link = publicLinkFor("7x9kL2");
+    return nextState;
   }
 }
 
@@ -66,6 +75,23 @@ function safeHttpUrl(value) {
   } catch (error) {
     return "";
   }
+}
+
+function getPublicContentId(location = window.location) {
+  const pathMatch = String(location.pathname || "").match(/^\/p\/([^/]+)\/?$/i);
+  if (pathMatch) return decodeURIComponent(pathMatch[1]);
+  return new URLSearchParams(location.search || "").get("p")?.trim() || "";
+}
+
+function getPublicLinkId(value) {
+  const match = String(value || "").match(/\/p\/([^/?#]+)/i);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function publicLinkFor(id) {
+  const encodedId = encodeURIComponent(String(id || "7x9kL2").trim());
+  if (window.location.protocol === "file:") return `./?p=${encodedId}`;
+  return `${window.location.origin}/p/${encodedId}`;
 }
 
 function assetUrl(path) {
@@ -145,8 +171,16 @@ function renderPublicPreview() {
   $("#public-link").value = state.link;
 }
 
+function renderPublicRoutePage() {
+  const homeLink = window.location.protocol === "file:" ? "./index.html" : window.location.origin;
+  document.body.className = "public-route-body";
+  document.body.innerHTML = '<div class="public-route-shell"><header class="public-route-header"><a class="public-route-brand" href="' + escapeHtml(homeLink) + '"><span class="brand-symbol"><i class="ph ph-sparkle"></i></span><span>Lumen Pass</span></a><span class="public-route-status"><i class="ph ph-shield-check"></i> SECURE CONTENT</span></header><main class="public-route-main"><div class="public-route-intro"><span class="eyebrow">PUBLIC CONTENT</span><h1>付费内容</h1><p>完成支付后，即可在当前页面查看创作者授权的完整内容。</p></div><section class="public-route-card" aria-label="付费内容"><div class="public-preview public-route-preview" id="public-route-preview"></div></section><p class="public-route-footnote"><i class="ph ph-lock-key"></i> 本页面由 Lumen Pass 提供安全访问，授权仅对当前内容生效。</p></main></div><div class="toast" id="toast" role="status" aria-live="polite"></div>';
+  renderPreviewCard($("#public-route-preview"), visitorState, true);
+}
+
 function renderVisitorPage() {
   if (visitorState === "paid" && state.authExpiresAt && Date.now() >= state.authExpiresAt) visitorState = "expired";
+  if (PUBLIC_CONTENT_ID) return renderPublicRoutePage();
   renderPreviewCard($("#visitor-page"), visitorState, true);
 }
 
@@ -289,7 +323,7 @@ function handleCreateSubmit(form) {
     }
   }
   if (createMode === "sensitive") state.sensitiveText = String(data.get("sensitiveText") || "").trim();
-  state.link = `https://lumenpass.com/p/${Math.random().toString(36).slice(2, 8)}`;
+  state.link = publicLinkFor(Math.random().toString(36).slice(2, 8));
   state.published = true;
   saveState();
   closeModals();
@@ -315,8 +349,15 @@ document.addEventListener("change", (event) => {
   if (event.target.matches("#price-input")) { state.price = formatMoney(event.target.value); saveState(); renderPublicPreview(); }
 });
 
-$("#create-form").addEventListener("submit", (event) => { event.preventDefault(); handleCreateSubmit(event.currentTarget); });
-window.setInterval(() => { if (!$("#visitor-modal").hidden && visitorState === "paid") renderVisitorPage(); }, 30000);
+$("#create-form")?.addEventListener("submit", (event) => { event.preventDefault(); handleCreateSubmit(event.currentTarget); });
+window.setInterval(() => {
+  if (PUBLIC_CONTENT_ID) {
+    if (visitorState === "paid") renderVisitorPage();
+    return;
+  }
+  const visitorModal = $("#visitor-modal");
+  if (visitorModal && !visitorModal.hidden && visitorState === "paid") renderVisitorPage();
+}, 30000);
 
 if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
   window.addEventListener("load", () => {
@@ -324,6 +365,10 @@ if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
   });
 }
 
-renderPublicPreview();
-renderOrders();
-switchScreen(state.screen || "content");
+if (PUBLIC_CONTENT_ID) {
+  renderPublicRoutePage();
+} else {
+  renderPublicPreview();
+  renderOrders();
+  switchScreen(state.screen || "content");
+}

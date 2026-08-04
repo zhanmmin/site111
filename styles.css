@@ -296,6 +296,25 @@ img { display: block; max-width: 100%; }
 .modal-panel .button-primary { margin-top: 22px; }
 .toast { position: fixed; left: 50%; bottom: 28px; z-index: 40; max-width: calc(100% - 32px); padding: 11px 16px; color: white; background: var(--navy); border: 1px solid rgba(170,200,242,.2); border-radius: 6px; box-shadow: 0 12px 35px rgba(0,0,0,.2); font-size: 11px; opacity: 0; pointer-events: none; transform: translate(-50%, 12px); transition: .25s ease; }
 .toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
+.public-route-body { min-height: 100vh; color: var(--text); background: #f3f4f0; }
+.public-route-shell { width: min(calc(100% - 48px), 920px); margin: 0 auto; padding: 28px 0 48px; }
+.public-route-header { display: flex; align-items: center; justify-content: space-between; min-height: 48px; border-bottom: 1px solid #dfe2dd; }
+.public-route-brand { display: inline-flex; align-items: center; gap: 9px; color: var(--navy); font: 500 19px "DM Sans", sans-serif; letter-spacing: -.04em; }
+.public-route-brand .brand-symbol { width: 24px; height: 24px; font-size: 19px; }
+.public-route-status { display: inline-flex; align-items: center; gap: 7px; color: #7e8b8e; font: 600 9px "DM Sans", sans-serif; letter-spacing: .16em; }
+.public-route-status i { color: var(--mint); font-size: 14px; }
+.public-route-main { padding-top: 58px; }
+.public-route-intro { max-width: 640px; }
+.public-route-intro h1 { margin: 9px 0 0; color: var(--text); font-size: clamp(34px, 5vw, 58px); font-weight: 500; letter-spacing: -.075em; }
+.public-route-intro p { margin: 14px 0 0; color: #7b858b; font-size: 12px; line-height: 1.7; }
+.public-route-card { margin-top: 31px; padding: 18px; background: #fffdfa; border: 1px solid var(--paper-line); border-radius: 5px; box-shadow: var(--shadow); }
+.public-route-preview { min-height: 0; padding: 20px; box-shadow: none; }
+.public-route-preview .visitor-copy { display: block; padding: 25px 28px 19px; text-align: center; }
+.public-route-preview .visitor-copy .creator-label { justify-self: center; }
+.public-route-preview .visitor-action { margin-top: 16px; }
+.public-route-preview .qr-pay-row { margin-top: 18px; }
+.public-route-footnote { display: flex; align-items: center; justify-content: center; gap: 7px; margin: 21px 0 0; color: #879394; font-size: 10px; }
+.public-route-footnote i { color: var(--mint); font-size: 14px; }
 
 @media (max-width: 1060px) {
   .site-header-inner, .site-main { width: min(100% - 48px, 1400px); }
@@ -334,6 +353,13 @@ img { display: block; max-width: 100%; }
 }
 
 @media (max-width: 560px) {
+  .public-route-shell { width: calc(100% - 28px); padding-top: 19px; }
+  .public-route-status { font-size: 8px; letter-spacing: .1em; }
+  .public-route-main { padding-top: 39px; }
+  .public-route-card { margin-top: 24px; padding: 9px; }
+  .public-route-preview { padding: 11px; }
+  .public-route-preview .visitor-copy { padding: 20px 11px 15px; }
+  .public-route-footnote { align-items: flex-start; text-align: center; }
   .profile-menu span { width: 31px; height: 31px; }
   .publish-button { width: 34px; min-height: 34px; padding: 0; justify-content: center; font-size: 0; }
   .publish-button i { font-size: 16px; }

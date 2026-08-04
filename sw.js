@@ -1,9 +1,9 @@
-const CACHE_NAME = "lumen-pass-shell-v2";
+const CACHE_NAME = "lumen-pass-shell-v3";
 const SHELL = [
   "./",
   "./index.html",
-  "./styles.css",
-  "./app.js?v=20260804paidfix",
+  "./styles.css?v=20260804public-route",
+  "./app.js?v=20260804public-route",
   "./manifest.webmanifest",
   "./assets/locked-preview.png",
   "./assets/unlocked-preview.png",
@@ -11,11 +11,12 @@ const SHELL = [
 ];
 
 self.addEventListener("install", (event) => {
+  self.skipWaiting();
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL)));
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))));
+  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
 });
 
 self.addEventListener("fetch", (event) => {

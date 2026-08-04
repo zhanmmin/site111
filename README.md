@@ -18,5 +18,6 @@ python3 -m http.server 4173
 - Mock Payment Provider：支付处理中、成功、失败、授权过期等状态可在本地演示
 - 访问规则：支付后可查看、仅查看一次、2 小时有效
 - 内容创建向导：设置模式、标题、金额、访问规则与创作者寄语，并生成公开链接
+- 真实公开访问路由：分享链接使用当前域名的 `/p/:id`，买家可直接进入支付页
 - 使用 `localStorage` 保存当前内容与本地演示订单
 - 提供基础 PWA manifest 和 Service Worker
