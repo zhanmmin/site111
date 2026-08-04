@@ -313,6 +313,7 @@ img { display: block; max-width: 100%; }
 .form-error { margin: 0 0 9px; padding: 9px 11px; color: #a84f44; background: #fff0ed; border: 1px solid #f2c8c1; border-radius: 5px; font-size: 10px; line-height: 1.5; }
 .toast { position: fixed; left: 50%; bottom: 28px; z-index: 40; max-width: calc(100% - 32px); padding: 11px 16px; color: white; background: var(--navy); border: 1px solid rgba(170,200,242,.2); border-radius: 6px; box-shadow: 0 12px 35px rgba(0,0,0,.2); font-size: 11px; opacity: 0; pointer-events: none; transform: translate(-50%, 12px); transition: .25s ease; }
 .toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
+.copy-fallback-input { position: fixed; left: 50%; bottom: 72px; z-index: 45; width: min(calc(100% - 32px), 440px); padding: 11px 13px; color: var(--text); background: #fffdfa; border: 1px solid #98b5e7; border-radius: 6px; box-shadow: 0 12px 35px rgba(0,0,0,.2); font-size: 11px; transform: translateX(-50%); }
 .public-route-body { min-height: 100vh; color: var(--text); background: #f3f4f0; }
 .public-route-shell { width: min(calc(100% - 48px), 920px); margin: 0 auto; padding: 28px 0 48px; }
 .public-route-header { display: flex; align-items: center; justify-content: space-between; min-height: 48px; border-bottom: 1px solid #dfe2dd; }

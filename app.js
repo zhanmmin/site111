@@ -52,6 +52,7 @@ if (PUBLIC_CONTENT_ID) {
 let visitorState = "unpaid";
 let visitorTimer = null;
 let toastTimer = null;
+let copyFallbackTimer = null;
 let createMode = state.mode;
 let editingContentId = null;
 
@@ -226,16 +227,20 @@ function renderPreviewCard(target, viewState = "unpaid", modal = false) {
   const buttonAction = paid && state.mode === "link" && hasLink ? "open-content" : paid ? "noop" : expired ? "simulate-payment" : "simulate-payment";
   const statusLabel = paid ? "已解锁状态" : expired ? "授权已过期" : processing ? "支付处理中" : "未解锁状态";
   const timeHint = paid ? `<span class="authorization-time"><i class="ph ph-timer"></i> ${getRemainingTime()}</span>` : "";
-  const paymentHint = state.mode === "sensitive" ? "支付成功后才会显示密码文字" : state.mode === "link" ? "支付成功后才会显示文字或打开网址" : "支付后立即解锁完整内容";
+  const paymentHint = paid
+    ? (state.mode === "sensitive" ? "授权文字已显示，仅当前安全会话可见" : state.mode === "link" ? "内容已解锁，可安全打开网址" : "内容已解锁，可在授权有效期内查看")
+    : state.mode === "sensitive" ? "支付成功后才会显示密码文字" : state.mode === "link" ? "支付成功后才会显示文字或打开网址" : "支付后立即解锁完整内容";
   const mediaAsset = paid && !expired ? assetUrl("assets/unlocked-preview.png") : assetUrl("assets/locked-preview.png");
   const mediaAlt = paid && !expired ? "已解锁的高清内容" : "受保护的内容预览";
-  const media = `<div class="visitor-media ${paid ? "is-unlocked" : ""} ${expired ? "is-expired" : ""}"><img src="${mediaAsset}" alt="${mediaAlt}" />${modeMediaContent(viewState, modal)}</div>`;
+  const mediaOverlay = paid && !expired ? "" : modeMediaContent(viewState, modal);
+  const unlockedContent = paid && !expired ? modeMediaContent(viewState, modal) : "";
+  const media = `<div class="visitor-media ${paid ? "is-unlocked" : ""} ${expired ? "is-expired" : ""}"><img src="${mediaAsset}" alt="${mediaAlt}" />${mediaOverlay}</div>`;
   const paidNote = paid && state.mode === "sensitive" ? "授权有效，内容仅在本次安全会话中展示。" : state.note;
   target.innerHTML = `<div class="visitor-preview-inner ${modal ? "modal-preview-inner" : ""}">
     <div class="visitor-topline"><span>${modal ? "Lumen Pass 安全内容页" : "买家打开后将看到的页面"}</span><button class="mini-action" type="button" data-action="report-content"><i class="ph ph-flag"></i> 举报</button></div>
     ${media}
+    ${unlockedContent}
     <div class="visitor-copy"><span class="creator-label">创作者寄语</span><h2 id="visitor-modal-title">${escapeHtml(displayTitle)}</h2><p>${escapeHtml(paidNote)}</p><div class="visitor-price">¥ ${formatMoney(state.price)}</div>${paid ? `${timeHint}<button class="visitor-action ${state.mode === "link" ? "" : "is-disabled"}" type="button" data-action="${buttonAction}" ${buttonAction === "noop" ? "disabled" : ""}><i class="ph ${actionIcon}"></i> ${action}</button>` : `<button class="visitor-action ${processing ? "is-processing" : ""}" type="button" data-action="${buttonAction}"><i class="ph ${actionIcon}"></i> ${action}</button>`}<div class="secure-hint"><i class="ph ph-shield-check"></i><span>${escapeHtml(paymentHint)} · ${escapeHtml(getExpiryLabel())}</span></div>${!paid && !processing ? `<div class="qr-pay-row"><img src="${qrUrl()}" alt="支付二维码" /><div><strong>使用微信扫一扫支付</strong><span>打开扫一扫，识别二维码</span></div></div>` : ""}${processing && modal ? `<button class="simulate-failure" type="button" data-action="simulate-failure">模拟支付失败</button>` : ""}</div>
-    ${modeMediaContent(viewState, modal).includes("unlock-content") ? "" : ""}
     <div class="access-steps"><div class="access-step ${viewState === "unpaid" || viewState === "processing" ? "is-current" : ""}"><span class="step-dot"><i class="ph ph-credit-card"></i></span><span>待支付</span><small>等待买家付款</small></div><div class="access-step ${viewState === "processing" ? "is-current" : ""}"><span class="step-dot"><i class="ph ph-receipt"></i></span><span>已支付</span><small>支付成功</small></div><div class="access-step ${paid ? "is-current" : ""}"><span class="step-dot"><i class="ph ph-lock-open"></i></span><span>可查看</span><small>开始查看内容</small></div><div class="access-step ${expired ? "is-current" : ""}"><span class="step-dot"><i class="ph ph-check"></i></span><span>${expired ? "已过期" : "访问完成"}</span><small>${expired ? "重新支付" : "阅读或访问结束"}</small></div></div>
     ${paid && state.rule === "once" ? `<div class="once-note"><i class="ph ph-eye-slash"></i> 这是一次性授权，关闭页面后将无法再次查看。</div>` : ""}
   </div>`;
@@ -400,10 +405,57 @@ function startMockPayment() {
   }, 1500);
 }
 
+function fallbackCopyText(text) {
+  const textarea = document.createElement("textarea");
+  textarea.value = String(text ?? "");
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-9999px";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+  let copied = false;
+  try { copied = document.execCommand("copy"); } catch (error) { copied = false; }
+  textarea.remove();
+  return copied;
+}
+
+function showCopyFallback(value) {
+  let input = $("#copy-fallback-input");
+  if (!input) {
+    input = document.createElement("input");
+    input.id = "copy-fallback-input";
+    input.className = "copy-fallback-input";
+    input.type = "text";
+    input.readOnly = true;
+    input.setAttribute("aria-label", "待手动复制的内容");
+    document.body.appendChild(input);
+  }
+  input.value = value;
+  input.hidden = false;
+  input.focus();
+  input.select();
+  input.setSelectionRange(0, input.value.length);
+  window.clearTimeout(copyFallbackTimer);
+  copyFallbackTimer = window.setTimeout(() => { input.remove(); }, 8000);
+  showToast("浏览器不允许自动复制，请按 ⌘C / Ctrl+C 完成");
+}
+
 function copyText(text, successMessage) {
-  const fallback = () => showToast(successMessage);
-  if (!navigator.clipboard) return fallback();
-  navigator.clipboard.writeText(text).then(fallback).catch(fallback);
+  const value = String(text ?? "");
+  if (!value) { showToast("没有可复制的内容"); return; }
+  const showResult = (copied) => copied ? showToast(successMessage) : showCopyFallback(value);
+  if (window.location.protocol === "https:" && navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(value).then(() => showResult(true)).catch(() => showResult(fallbackCopyText(value)));
+    return;
+  }
+  if (window.location.protocol === "https:") {
+    showResult(fallbackCopyText(value));
+    return;
+  }
+  showCopyFallback(value);
 }
 
 function handleAction(action, element) {
