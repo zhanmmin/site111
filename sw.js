@@ -1,5 +1,14 @@
-const CACHE_NAME = "lumen-pass-shell-v1";
-const SHELL = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.webmanifest", "./assets/locked-preview.png"];
+const CACHE_NAME = "lumen-pass-shell-v2";
+const SHELL = [
+  "./",
+  "./index.html",
+  "./styles.css",
+  "./app.js?v=20260804paidfix",
+  "./manifest.webmanifest",
+  "./assets/locked-preview.png",
+  "./assets/unlocked-preview.png",
+  "./assets/qr-public.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL)));

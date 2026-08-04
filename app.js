@@ -1,4 +1,5 @@
 const STORAGE_KEY = "lumen-pass-demo-v1";
+const ASSET_ROOT = window.location.protocol === "file:" ? "" : `${window.location.origin}/`;
 
 const seedState = {
   screen: "content",
@@ -67,8 +68,13 @@ function safeHttpUrl(value) {
   }
 }
 
+function assetUrl(path) {
+  const normalizedPath = String(path).replace(/^\/+/, "");
+  return `${ASSET_ROOT}${normalizedPath}`;
+}
+
 function qrUrl() {
-  return "assets/qr-public.png";
+  return assetUrl("assets/qr-public.png");
 }
 
 function getRuleLabel(rule = state.rule) {
@@ -114,7 +120,7 @@ function renderPreviewCard(target, viewState = "unpaid", modal = false) {
   const statusLabel = paid ? "已解锁状态" : expired ? "授权已过期" : processing ? "支付处理中" : "未解锁状态";
   const timeHint = paid ? `<span class="authorization-time"><i class="ph ph-timer"></i> ${getRemainingTime()}</span>` : "";
   const paymentHint = state.mode === "sensitive" ? "支付成功后才会显示密码文字" : "支付后立即解锁完整内容";
-  const mediaAsset = paid && !expired ? "assets/unlocked-preview.png" : "assets/locked-preview.png";
+  const mediaAsset = paid && !expired ? assetUrl("assets/unlocked-preview.png") : assetUrl("assets/locked-preview.png");
   const mediaAlt = paid && !expired ? "已解锁的高清内容" : "受保护的内容预览";
   const media = `<div class="visitor-media ${paid ? "is-unlocked" : ""} ${expired ? "is-expired" : ""}"><img src="${mediaAsset}" alt="${mediaAlt}" />${modeMediaContent(viewState, modal)}</div>`;
   const paidNote = paid && state.mode === "sensitive" ? "授权有效，内容仅在本次安全会话中展示。" : state.note;
@@ -279,6 +285,12 @@ document.addEventListener("change", (event) => {
 
 $("#create-form").addEventListener("submit", (event) => { event.preventDefault(); handleCreateSubmit(event.currentTarget); });
 window.setInterval(() => { if (!$("#visitor-modal").hidden && visitorState === "paid") renderVisitorPage(); }, 30000);
+
+if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).catch(() => {});
+  });
+}
 
 renderPublicPreview();
 renderOrders();
