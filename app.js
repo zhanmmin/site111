@@ -13,6 +13,7 @@ const seedState = {
   textContent: "城市黄昏摄影作品集\n\n感谢你的支持，愿你在每一次按下快门时，都能看见自己的答案。",
   sensitiveText: "LUMEN-2026\n授权码：N8QF-72KX-PA4M\n有效期：支付后 2 小时",
   published: true,
+  contents: [],
   orders: [
     { id: "LP-240803-0012", customer: "晚风与鲸", content: "光的形状 · 图片", amount: "9.90", time: "2 分钟前", status: "paid", initial: "晚" },
     { id: "LP-240803-0011", customer: "山止川行", content: "私享文章 · 网址", amount: "19.90", time: "18 分钟前", status: "paid", initial: "山" },
@@ -31,9 +32,14 @@ const modeLabels = {
 
 const PUBLIC_CONTENT_ID = getPublicContentId();
 let state = loadState();
-if (PUBLIC_CONTENT_ID && getPublicLinkId(state.link) !== PUBLIC_CONTENT_ID) {
-  state = structuredClone(seedState);
-  state.link = publicLinkFor(PUBLIC_CONTENT_ID);
+if (PUBLIC_CONTENT_ID) {
+  const sharedContent = state.contents?.find((content) => content.id === PUBLIC_CONTENT_ID);
+  if (sharedContent) {
+    state = { ...state, ...sharedContent, link: publicLinkFor(PUBLIC_CONTENT_ID) };
+  } else if (getPublicLinkId(state.link) !== PUBLIC_CONTENT_ID) {
+    state = structuredClone(seedState);
+    state.link = publicLinkFor(PUBLIC_CONTENT_ID);
+  }
 }
 let visitorState = "unpaid";
 let visitorTimer = null;
@@ -92,6 +98,61 @@ function publicLinkFor(id) {
   const encodedId = encodeURIComponent(String(id || "7x9kL2").trim());
   if (window.location.protocol === "file:") return `./?p=${encodedId}`;
   return `${window.location.origin}/p/${encodedId}`;
+}
+
+const contentModeIcons = { image: "ph-image", dual: "ph-images", link: "ph-link", sensitive: "ph-key" };
+
+function syncCurrentContentRecord() {
+  if (!Array.isArray(state.contents)) state.contents = [];
+  const id = getPublicLinkId(state.link) || "7x9kL2";
+  const existing = state.contents.find((content) => content.id === id);
+  const record = {
+    id,
+    title: state.title,
+    mode: state.mode,
+    price: formatMoney(state.price),
+    rule: state.rule,
+    note: state.note,
+    link: publicLinkFor(id),
+    linkContent: state.linkContent || "",
+    textContent: state.textContent || "",
+    sensitiveText: state.sensitiveText || "",
+    status: "published",
+    updated: "刚刚",
+    views: existing?.views || 0,
+    sales: existing?.sales || 0,
+  };
+  if (existing) Object.assign(existing, record);
+  else state.contents.unshift(record);
+  state.link = record.link;
+}
+
+function findContentById(id) {
+  return state.contents?.find((content) => content.id === id);
+}
+
+function applyContentRecord(content) {
+  if (!content) return;
+  state.mode = content.mode;
+  state.title = content.title;
+  state.price = formatMoney(content.price);
+  state.rule = content.rule || "window";
+  state.note = content.note || "";
+  state.link = publicLinkFor(content.id);
+  state.linkContent = content.linkContent || "";
+  state.textContent = content.textContent || "";
+  state.sensitiveText = content.sensitiveText || "";
+}
+
+function renderContentLibrary() {
+  const target = $("#content-library");
+  if (!target) return;
+  const contents = Array.isArray(state.contents) ? state.contents : [];
+  target.innerHTML = contents.map((content) => {
+    const mode = modeLabels[content.mode] || modeLabels.image;
+    const icon = contentModeIcons[content.mode] || contentModeIcons.image;
+    return '<article class="content-library-row"><div class="content-library-main"><span class="content-library-icon"><i class="ph ' + icon + '"></i></span><div><strong>' + escapeHtml(content.title) + '</strong><span>' + escapeHtml(content.id) + ' · 更新于 ' + escapeHtml(content.updated || "刚刚") + '</span></div></div><span class="content-library-mode"><i class="ph ' + icon + '"></i>' + escapeHtml(mode.label) + '</span><strong class="content-library-price">¥ ' + escapeHtml(formatMoney(content.price)) + '</strong><span class="content-library-status"><i class="ph ph-check-circle"></i> 已发布</span><div class="content-library-actions"><button type="button" data-action="view-content" data-content-id="' + escapeHtml(content.id) + '">编辑</button><button type="button" data-action="open-public-link" data-content-id="' + escapeHtml(content.id) + '">打开</button><button type="button" data-action="copy-content-link" data-content-id="' + escapeHtml(content.id) + '">复制链接</button></div></article>';
+  }).join("");
 }
 
 function assetUrl(path) {
@@ -172,7 +233,7 @@ function renderPublicPreview() {
 }
 
 function renderPublicRoutePage() {
-  const homeLink = window.location.protocol === "file:" ? "./index.html" : window.location.origin;
+  const homeLink = window.location.protocol === "file:" ? "./index.html" : `${window.location.origin}/admin`;
   document.body.className = "public-route-body";
   document.body.innerHTML = '<div class="public-route-shell"><header class="public-route-header"><a class="public-route-brand" href="' + escapeHtml(homeLink) + '"><span class="brand-symbol"><i class="ph ph-sparkle"></i></span><span>Lumen Pass</span></a><span class="public-route-status"><i class="ph ph-shield-check"></i> SECURE CONTENT</span></header><main class="public-route-main"><div class="public-route-intro"><span class="eyebrow">PUBLIC CONTENT</span><h1>付费内容</h1><p>完成支付后，即可在当前页面查看创作者授权的完整内容。</p></div><section class="public-route-card" aria-label="付费内容"><div class="public-preview public-route-preview" id="public-route-preview"></div></section><p class="public-route-footnote"><i class="ph ph-lock-key"></i> 本页面由 Lumen Pass 提供安全访问，授权仅对当前内容生效。</p></main></div><div class="toast" id="toast" role="status" aria-live="polite"></div>';
   renderPreviewCard($("#public-route-preview"), visitorState, true);
@@ -295,7 +356,29 @@ function handleAction(action, element) {
   if (action === "copy-link") return copyText(state.link, "公开链接已复制");
   if (action === "copy-text-content") return copyText(state.textContent, "文字内容已复制");
   if (action === "copy-sensitive") return copyText(state.sensitiveText, "敏感文字已复制");
-  if (action === "publish") { state.published = true; saveState(); showToast("已发布更新，公开链接保持不变"); return; }
+  if (action === "copy-content-link") {
+    const content = findContentById(element.dataset.contentId);
+    return content ? copyText(publicLinkFor(content.id), "公开链接已复制") : showToast("内容链接不存在");
+  }
+  if (action === "view-content") {
+    const content = findContentById(element.dataset.contentId);
+    if (!content) return showToast("内容不存在");
+    applyContentRecord(content);
+    saveState();
+    renderPublicPreview();
+    renderContentLibrary();
+    showToast("已切换到：" + content.title);
+    return;
+  }
+  if (action === "open-public-link") {
+    const content = findContentById(element.dataset.contentId);
+    if (!content) return showToast("内容不存在");
+    applyContentRecord(content);
+    saveState();
+    window.open(publicLinkFor(content.id), "_blank", "noopener,noreferrer");
+    return;
+  }
+  if (action === "publish") { state.published = true; syncCurrentContentRecord(); saveState(); renderContentLibrary(); showToast("已发布更新，公开链接保持不变"); return; }
   if (action === "open-content") { const url = safeHttpUrl(state.linkContent); if (url) window.open(url, "_blank", "noopener,noreferrer"); else showToast("链接格式不安全，已阻止打开"); return; }
   if (["open-guide", "open-account", "show-security", "open-cover", "edit-note", "open-advanced", "report-content", "share-wechat", "share-moments", "share-weibo"].includes(action)) { showToast({ "open-guide": "新手指南：从创建内容到支付回调，四步即可发布", "open-account": "当前工作区：夜航者", "show-security": "安全策略已启用：加密存储、签名回调、授权过期", "open-cover": "封面图片已接入安全存储", "edit-note": "创作者寄语已在预览中同步", "open-advanced": "高级选项将在正式接入支付后开放", "report-content": "感谢反馈，我们会在 24 小时内处理", "share-wechat": "微信分享卡片已准备好", "share-moments": "朋友圈分享卡片已准备好", "share-weibo": "微博分享链接已准备好" }[action]); return; }
   if (action === "withdraw") { showToast("提现申请已创建，Mock Provider 将在下一结算日处理"); return; }
@@ -325,9 +408,11 @@ function handleCreateSubmit(form) {
   if (createMode === "sensitive") state.sensitiveText = String(data.get("sensitiveText") || "").trim();
   state.link = publicLinkFor(Math.random().toString(36).slice(2, 8));
   state.published = true;
+  syncCurrentContentRecord();
   saveState();
   closeModals();
   renderPublicPreview();
+  renderContentLibrary();
   showToast("安全链接已生成，可继续调整访问设置");
 }
 
@@ -335,9 +420,9 @@ document.addEventListener("click", (event) => {
   const screenButton = event.target.closest("[data-screen]");
   if (screenButton) { switchScreen(screenButton.dataset.screen); return; }
   const modeButton = event.target.closest("[data-mode]");
-  if (modeButton) { state.mode = modeButton.dataset.mode; state.title = modeLabels[state.mode].title; saveState(); renderPublicPreview(); return; }
+  if (modeButton) { state.mode = modeButton.dataset.mode; state.title = modeLabels[state.mode].title; syncCurrentContentRecord(); saveState(); renderPublicPreview(); renderContentLibrary(); return; }
   const ruleButton = event.target.closest("[data-rule]");
-  if (ruleButton) { state.rule = ruleButton.dataset.rule; saveState(); renderPublicPreview(); showToast(`访问规则已切换为：${getRuleLabel()}`); return; }
+  if (ruleButton) { state.rule = ruleButton.dataset.rule; syncCurrentContentRecord(); saveState(); renderPublicPreview(); renderContentLibrary(); showToast(`访问规则已切换为：${getRuleLabel()}`); return; }
   const createModeButton = event.target.closest("[data-create-mode]");
   if (createModeButton) { createMode = createModeButton.dataset.createMode; $$("[data-create-mode]").forEach((button) => button.classList.toggle("is-selected", button === createModeButton)); updateCreateFields(); return; }
   const actionButton = event.target.closest("[data-action]");
@@ -346,7 +431,7 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("change", (event) => {
-  if (event.target.matches("#price-input")) { state.price = formatMoney(event.target.value); saveState(); renderPublicPreview(); }
+  if (event.target.matches("#price-input")) { state.price = formatMoney(event.target.value); syncCurrentContentRecord(); saveState(); renderPublicPreview(); renderContentLibrary(); }
 });
 
 $("#create-form")?.addEventListener("submit", (event) => { event.preventDefault(); handleCreateSubmit(event.currentTarget); });
@@ -368,7 +453,10 @@ if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
 if (PUBLIC_CONTENT_ID) {
   renderPublicRoutePage();
 } else {
+  syncCurrentContentRecord();
+  saveState();
   renderPublicPreview();
+  renderContentLibrary();
   renderOrders();
   switchScreen(state.screen || "content");
 }
