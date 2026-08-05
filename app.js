@@ -614,6 +614,20 @@ function openCreateForm(content = null) {
   openModal("create-modal");
 }
 
+function openPublishSuccessModal(wasEditing = false) {
+  const title = $("#publish-result-title");
+  const description = $("#publish-result-description");
+  const contentTitle = $("#publish-result-content-title");
+  const contentMeta = $("#publish-result-content-meta");
+  const linkInput = $("#published-link");
+  if (title) title.textContent = wasEditing ? "内容已保存" : "发布成功";
+  if (description) description.textContent = wasEditing ? "公开链接保持不变，你可以继续分享这条内容。" : "安全链接已生成，现在可以复制并分享给你的受众。";
+  if (contentTitle) contentTitle.textContent = state.title || "付费内容";
+  if (contentMeta) contentMeta.textContent = `${getRuleLabel()} · ¥ ${formatMoney(state.price)}`;
+  if (linkInput) linkInput.value = state.link;
+  openModal("publish-success-modal");
+}
+
 function closeModals() {
   if (!$("#visitor-modal")?.hidden && visitorState === "paid" && state.rule === "once") {
     visitorState = "expired";
@@ -757,6 +771,12 @@ function handleAction(action, element) {
     return;
   }
   if (action === "copy-link") return copyText(state.link, "公开链接已复制");
+  if (action === "copy-published-link") return copyText(state.link, "公开链接已复制");
+  if (action === "open-published-link") {
+    if (!state.link) return showToast("公开链接不存在");
+    window.open(state.link, "_blank", "noopener,noreferrer");
+    return;
+  }
   if (action === "copy-text-content") return copyText(state.textContent, "文字内容已复制");
   if (action === "copy-sensitive") return copyText(state.sensitiveText, "敏感文字已复制");
   if (action === "copy-content-link") {
@@ -875,7 +895,7 @@ function handleCreateSubmit(form) {
   closeModals();
   renderPublicPreview();
   renderContentLibrary();
-  showToast(wasEditing ? "内容已保存，公开链接保持不变" : "安全链接已生成，可在内容库中继续编辑");
+  openPublishSuccessModal(wasEditing);
 }
 
 document.addEventListener("click", (event) => {
