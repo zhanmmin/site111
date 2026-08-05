@@ -16,6 +16,7 @@ const seedState = {
   sensitiveText: "LUMEN-2026\n授权码：N8QF-72KX-PA4M\n有效期：支付后 2 小时",
   published: true,
   contents: [],
+  session: { loggedIn: false, email: "" },
   profile: { displayName: "夜航者", email: "hello@lumenpass.com", bio: "记录光线、城市与被认真对待的内容。" },
   security: { callbackSignature: true, sensitiveCopy: true, scanUploads: true },
   payouts: [
@@ -68,6 +69,7 @@ function loadState() {
     const nextState = saved ? { ...structuredClone(seedState), ...saved } : structuredClone(seedState);
     nextState.profile = { ...seedState.profile, ...(saved?.profile || {}) };
     nextState.security = { ...seedState.security, ...(saved?.security || {}) };
+    nextState.session = { ...seedState.session, ...(saved?.session || {}) };
     nextState.payouts = Array.isArray(saved?.payouts) ? saved.payouts : structuredClone(seedState.payouts);
     nextState.contents = Array.isArray(saved?.contents) ? saved.contents.map((content) => ({
       ...content,
@@ -334,13 +336,27 @@ function renderSettings() {
   });
 }
 
+function renderSession() {
+  const session = state.session || seedState.session;
+  const profileButton = $("#profile-menu");
+  const initial = $("#profile-initial");
+  const loggedIn = Boolean(session.loggedIn);
+  const emailInitial = String(session.email || "").trim().match(/[A-Za-z0-9]/)?.[0]?.toUpperCase();
+  if (initial) initial.textContent = loggedIn && emailInitial ? emailInitial : "林";
+  if (profileButton) {
+    const label = loggedIn ? "打开账户设置" : "登录创作者后台";
+    profileButton.title = label;
+    profileButton.setAttribute("aria-label", label);
+  }
+}
+
 function switchScreen(screen) {
   state.screen = screen;
   saveState();
   $$("[data-screen-view]").forEach((view) => view.classList.toggle("is-active", view.dataset.screenView === screen));
   $$('[data-screen]').forEach((button) => button.classList.toggle("is-active", button.dataset.screen === screen));
-  const titles = { content: "预览与分享", orders: "订单", analytics: "数据", payout: "收款", settings: "设置" };
-  $("#breadcrumb-title").textContent = titles[screen] || "预览与分享";
+  const titles = { content: "编辑与发布", guide: "使用指南", orders: "订单", analytics: "数据", payout: "收款", settings: "设置" };
+  $("#breadcrumb-title").textContent = titles[screen] || "编辑与发布";
   const header = $(".site-header");
   const menuButton = $(".header-menu-button");
   header?.classList.remove("is-nav-open");
@@ -354,11 +370,39 @@ function switchScreen(screen) {
 function openModal(id) {
   const modal = $(`#${id}`);
   if (modal) modal.hidden = false;
+  if (id === "login-modal") {
+    const emailInput = $("#login-form [name=email]");
+    const error = $("#login-form-error");
+    if (emailInput) emailInput.value = state.session?.email || state.profile?.email || "";
+    if (error) { error.textContent = ""; error.hidden = true; }
+  }
   if (id === "visitor-modal") {
     visitorState = "unpaid";
     state.authExpiresAt = null;
     renderVisitorPage();
   }
+}
+
+function setLoginFormError(message = "") {
+  const target = $("#login-form-error");
+  if (!target) return;
+  target.textContent = message;
+  target.hidden = !message;
+}
+
+function handleLoginSubmit(form) {
+  const data = new FormData(form);
+  const email = String(data.get("email") || "").trim();
+  const password = String(data.get("password") || "");
+  if (!email || !email.includes("@")) return setLoginFormError("请输入有效的邮箱地址");
+  if (password.length < 6) return setLoginFormError("密码至少需要 6 位字符");
+  setLoginFormError("");
+  state.session = { loggedIn: true, email };
+  saveState();
+  renderSession();
+  closeModals();
+  switchScreen("settings");
+  showToast("登录成功，欢迎回来");
 }
 
 function updateCreateFields() {
@@ -493,6 +537,19 @@ function handleAction(action, element) {
     element.setAttribute("aria-expanded", String(isOpen));
     return;
   }
+  if (action === "open-guide") return switchScreen("guide");
+  if (action === "open-login") {
+    if (state.session?.loggedIn) return switchScreen("settings");
+    return openModal("login-modal");
+  }
+  if (action === "logout") {
+    state.session = { loggedIn: false, email: "" };
+    saveState();
+    renderSession();
+    switchScreen("content");
+    showToast("已退出登录");
+    return;
+  }
   if (action === "open-visitor") return openModal("visitor-modal");
   if (action === "open-create") return openCreateForm();
   if (action === "close-modal") return closeModals();
@@ -534,7 +591,7 @@ function handleAction(action, element) {
     return;
   }
   if (action === "open-content") { const url = safeHttpUrl(state.linkContent); if (url) window.open(url, "_blank", "noopener,noreferrer"); else showToast("链接格式不安全，已阻止打开"); return; }
-  if (["open-guide", "open-account", "show-security", "open-cover", "edit-note", "open-advanced", "report-content", "share-wechat", "share-moments", "share-weibo"].includes(action)) { showToast({ "open-guide": "新手指南：从创建内容到支付回调，四步即可发布", "open-account": "当前工作区：夜航者", "show-security": "安全策略已启用：加密存储、签名回调、授权过期", "open-cover": "封面图片已接入安全存储", "edit-note": "创作者寄语已在预览中同步", "open-advanced": "高级选项将在正式接入支付后开放", "report-content": "感谢反馈，我们会在 24 小时内处理", "share-wechat": "微信分享卡片已准备好", "share-moments": "朋友圈分享卡片已准备好", "share-weibo": "微博分享链接已准备好" }[action]); return; }
+  if (["open-account", "show-security", "open-cover", "edit-note", "open-advanced", "report-content", "share-wechat", "share-moments", "share-weibo"].includes(action)) { showToast({ "open-account": "当前工作区：夜航者", "show-security": "安全策略已启用：加密存储、签名回调、授权过期", "open-cover": "封面图片已接入安全存储", "edit-note": "创作者寄语已在预览中同步", "open-advanced": "高级选项将在正式接入支付后开放", "report-content": "感谢反馈，我们会在 24 小时内处理", "share-wechat": "微信分享卡片已准备好", "share-moments": "朋友圈分享卡片已准备好", "share-weibo": "微博分享链接已准备好" }[action]); return; }
   if (action === "withdraw") { state.payouts.unshift({ date: "刚刚", amount: "2,408.60", status: "处理中", method: "微信支付" }); saveState(); renderPayoutHistory(); showToast("提现申请已创建，正在等待结算"); return; }
   if (action === "edit-provider") { showToast("Mock Payment Provider 已连接，支持替换为真实支付服务"); return; }
   if (action === "export-orders") { copyText("Lumen Pass 订单导出：" + state.orders.length + " 笔，已支付 " + state.orders.filter((order) => order.status === "paid").length + " 笔，处理中 " + state.orders.filter((order) => order.status === "pending").length + " 笔", "订单摘要已复制"); return; }
@@ -640,6 +697,7 @@ document.addEventListener("change", (event) => {
 });
 
 $("#create-form")?.addEventListener("submit", (event) => { event.preventDefault(); handleCreateSubmit(event.currentTarget); });
+$("#login-form")?.addEventListener("submit", (event) => { event.preventDefault(); handleLoginSubmit(event.currentTarget); });
 window.setInterval(() => {
   if (PUBLIC_CONTENT_ID) {
     if (visitorState === "paid") renderVisitorPage();
@@ -666,5 +724,6 @@ if (PUBLIC_CONTENT_ID) {
   renderAnalyticsPeriod();
   renderPayoutHistory();
   renderSettings();
+  renderSession();
   switchScreen(state.screen || "content");
 }

@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css" />
-    <link rel="stylesheet" href="/styles.css?v=20260805content-map1" />
+    <link rel="stylesheet" href="/styles.css?v=20260805creator-flow1" />
   </head>
   <body>
     <div class="site-shell">
@@ -27,20 +27,18 @@
           <div class="site-header-actions">
             <span class="save-status"><i class="ph ph-circle-fill"></i> 已保存 <small>刚刚</small></span>
             <button class="header-help" type="button" data-action="open-guide">使用指南 <i class="ph ph-question"></i></button>
-            <button class="publish-button" type="button" data-action="open-create"><i class="ph ph-plus"></i> 发布内容</button>
-            <button class="profile-menu" type="button" data-screen="settings" aria-label="打开账户设置" title="账户设置"><span>林</span><i class="ph ph-gear"></i></button>
+            <button class="profile-menu" id="profile-menu" type="button" data-action="open-login" aria-label="登录创作者后台" title="登录创作者后台"><span id="profile-initial">林</span><i class="ph ph-gear"></i></button>
             <button class="header-menu-button" type="button" data-action="toggle-site-menu" aria-label="打开网站导航" aria-expanded="false"><i class="ph ph-list"></i></button>
           </div>
         </div>
       </header>
 
       <main class="site-main">
-        <div class="site-breadcrumb"><span>管理后台</span><i class="ph ph-slash"></i><span>内容管理</span><i class="ph ph-slash"></i><strong id="breadcrumb-title">预览与分享</strong></div>
+        <div class="site-breadcrumb"><span>管理后台</span><i class="ph ph-slash"></i><span>内容管理</span><i class="ph ph-slash"></i><strong id="breadcrumb-title">编辑与发布</strong></div>
 
         <section class="screen is-active" id="screen-content" data-screen-view="content">
           <div class="web-page-heading">
-            <div><span class="eyebrow">SECURE PUBLISHING</span><h1>预览与分享</h1><p>这是你的公开访问页面，用户在支付后即可查看完整内容。</p></div>
-            <div class="heading-actions"><button class="button button-text" type="button" data-action="open-visitor"><i class="ph ph-arrow-up-right"></i> 查看公开页面</button><button class="button button-primary" type="button" data-action="publish"><i class="ph ph-check"></i> 发布更新</button></div>
+            <div><span class="eyebrow">CONTENT EDITOR</span><h1>编辑与发布</h1><p>发布前编辑买家看到的内容，发布后从内容库进入对应公开页面。</p></div>
           </div>
 
           <div class="content-tabs" aria-label="内容类型">
@@ -52,7 +50,7 @@
 
           <div class="web-workspace">
             <section class="preview-column" aria-label="公开页面预览">
-              <div class="section-head"><div><span class="eyebrow">PUBLIC PAGE</span><h2>买家将看到的内容</h2></div><div class="view-state"><i class="ph ph-eye"></i> 付款前预览</div></div>
+              <div class="section-head"><div><span class="eyebrow">CONTENT EDITOR</span><h2>发布前编辑</h2></div><div class="section-head-actions"><div class="view-state"><i class="ph ph-pencil-simple"></i> 发布前编辑</div><button class="button button-primary preview-publish-button" type="button" data-action="open-create"><i class="ph ph-plus"></i> 发布内容</button></div></div>
               <div class="public-preview" id="public-preview"></div>
               <div class="preview-footnote"><i class="ph ph-shield-check"></i><span>内容已加密保护，支付安全由合作伙伴提供技术支持。</span><button type="button" class="text-link" data-action="show-security">了解安全策略 <i class="ph ph-arrow-up-right"></i></button></div>
             </section>
@@ -88,14 +86,29 @@
         </section>
 
         <section class="screen" id="screen-settings" data-screen-view="settings">
-          <div class="web-page-heading"><div><span class="eyebrow">WORKSPACE</span><h1>设置</h1><p>配置你的账号、链接域名与安全策略。</p></div><button class="button button-primary" type="button" data-action="save-settings"><i class="ph ph-check"></i> 保存设置</button></div><div class="settings-grid"><div class="settings-panel"><div class="panel-title"><div><h2>创作者资料</h2><span>会展示在买家页面的内容里</span></div></div><label class="form-label">显示名称<input id="profile-name" value="夜航者" /></label><label class="form-label">联系邮箱<input id="profile-email" value="hello@lumenpass.com" /></label><label class="form-label">个人简介<textarea id="profile-bio" rows="3">记录光线、城市与被认真对待的内容。</textarea></label></div><div class="settings-panel"><div class="panel-title"><div><h2>安全策略</h2><span>默认应用到新内容</span></div></div><button class="toggle-row" type="button" data-action="toggle-security" data-security="callbackSignature" aria-pressed="true"><span><strong>支付回调签名验证</strong><small>防止伪造支付成功状态</small></span><span class="toggle is-on"><i></i></span></button><button class="toggle-row" type="button" data-action="toggle-security" data-security="sensitiveCopy" aria-pressed="true"><span><strong>敏感文字禁止复制</strong><small>仅对一次性内容生效</small></span><span class="toggle is-on"><i></i></span></button><button class="toggle-row" type="button" data-action="toggle-security" data-security="scanUploads" aria-pressed="true"><span><strong>上传文件安全扫描</strong><small>S3 / MinIO 对象存储前置检查</small></span><span class="toggle is-on"><i></i></span></button></div></div>
+          <div class="web-page-heading"><div><span class="eyebrow">WORKSPACE</span><h1>设置</h1><p>配置你的账号、链接域名与安全策略。</p></div><div class="heading-actions"><button class="button button-outline" type="button" data-action="logout"><i class="ph ph-sign-out"></i> 退出登录</button><button class="button button-primary" type="button" data-action="save-settings"><i class="ph ph-check"></i> 保存设置</button></div></div><div class="settings-grid"><div class="settings-panel"><div class="panel-title"><div><h2>创作者资料</h2><span>会展示在买家页面的内容里</span></div></div><label class="form-label">显示名称<input id="profile-name" value="夜航者" /></label><label class="form-label">联系邮箱<input id="profile-email" value="hello@lumenpass.com" /></label><label class="form-label">个人简介<textarea id="profile-bio" rows="3">记录光线、城市与被认真对待的内容。</textarea></label></div><div class="settings-panel"><div class="panel-title"><div><h2>安全策略</h2><span>默认应用到新内容</span></div></div><button class="toggle-row" type="button" data-action="toggle-security" data-security="callbackSignature" aria-pressed="true"><span><strong>支付回调签名验证</strong><small>防止伪造支付成功状态</small></span><span class="toggle is-on"><i></i></span></button><button class="toggle-row" type="button" data-action="toggle-security" data-security="sensitiveCopy" aria-pressed="true"><span><strong>敏感文字禁止复制</strong><small>仅对一次性内容生效</small></span><span class="toggle is-on"><i></i></span></button><button class="toggle-row" type="button" data-action="toggle-security" data-security="scanUploads" aria-pressed="true"><span><strong>上传文件安全扫描</strong><small>S3 / MinIO 对象存储前置检查</small></span><span class="toggle is-on"><i></i></span></button></div></div>
+        </section>
+
+        <section class="screen guide-screen" id="screen-guide" data-screen-view="guide">
+          <div class="web-page-heading"><div><span class="eyebrow">CREATOR GUIDE</span><h1>使用指南</h1><p>从创建内容、发布链接到查看订单与收款的完整流程。</p></div><button class="button button-outline" type="button" data-screen="content"><i class="ph ph-arrow-left"></i> 返回编辑与发布</button></div>
+          <div class="guide-grid">
+            <article class="guide-step"><span class="guide-number">01</span><h2>创建内容</h2><p>选择图片、双图或网址 / 文字模式，填写标题、价格和访问规则。</p></article>
+            <article class="guide-step"><span class="guide-number">02</span><h2>发布链接</h2><p>在“发布前编辑”区域确认买家预览，点击“发布内容”生成可分享的安全链接。</p></article>
+            <article class="guide-step"><span class="guide-number">03</span><h2>管理订单</h2><p>在订单页查看支付状态、金额和买家记录，内容链接始终与内容库一一对应。</p></article>
+            <article class="guide-step"><span class="guide-number">04</span><h2>查看收款</h2><p>在收款页确认到账记录、结算方式和可提现余额。</p></article>
+          </div>
+          <div class="guide-layout">
+            <section class="guide-panel"><span class="eyebrow">BEFORE PUBLISHING</span><h2>发布前检查清单</h2><ul class="guide-checklist"><li><i class="ph ph-check-circle"></i><span>标题和价格与实际售卖内容一致</span></li><li><i class="ph ph-check-circle"></i><span>支付后展示的文字或链接已填写</span></li><li><i class="ph ph-check-circle"></i><span>访问规则符合你的交付方式</span></li><li><i class="ph ph-check-circle"></i><span>已在预览中确认未解锁状态</span></li></ul></section>
+            <section class="guide-panel"><span class="eyebrow">SAFETY & ACCESS</span><h2>安全与访问规则</h2><p class="guide-copy">内容在支付成功后才会展示。敏感文字默认禁止复制，并由支付回调签名验证保护授权状态。</p><div class="guide-faq"><strong>需要修改已发布内容？</strong><span>打开内容库对应条目的“编辑”，保存后会继续使用原公开链接。</span></div></section>
+          </div>
         </section>
       </main>
     </div>
 
     <div class="modal-backdrop" id="visitor-modal" hidden><div class="visitor-modal" role="dialog" aria-modal="true" aria-labelledby="visitor-modal-title"><div class="modal-topline"><span class="brand-lockup-mini"><span class="brand-symbol"><i class="ph ph-sparkle"></i></span>Lumen Pass</span><button class="ghost-icon light" type="button" data-action="close-modal" aria-label="关闭"><i class="ph ph-x"></i></button></div><div class="visitor-page" id="visitor-page"></div></div></div>
     <div class="modal-backdrop" id="create-modal" hidden><div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="create-title"><div class="modal-heading"><div><span class="eyebrow">NEW CONTENT</span><h2 id="create-title">创建一条付费内容</h2><p>填写最少的信息，稍后仍然可以继续编辑。</p></div><button class="ghost-icon" type="button" data-action="close-modal" aria-label="关闭"><i class="ph ph-x"></i></button></div><form id="create-form"><label class="form-label">内容模式<div class="create-modes"><button type="button" class="create-mode is-selected" data-create-mode="image"><i class="ph ph-image"></i><span>图片</span></button><button type="button" class="create-mode" data-create-mode="dual"><i class="ph ph-images"></i><span>双图</span></button><button type="button" class="create-mode" data-create-mode="link"><i class="ph ph-link"></i><span>网址 / 文字</span></button><button type="button" class="create-mode" data-create-mode="sensitive"><i class="ph ph-key"></i><span>密码文字</span></button></div></label><label class="form-label">标题<input name="title" value="城市黄昏摄影作品集" maxlength="60" /></label><div class="form-two"><label class="form-label">价格<input name="price" value="18.00" inputmode="decimal" min="0.01" max="9999" step="0.01" /></label><label class="form-label">访问规则<select name="rule"><option value="window">支付后可查看</option><option value="once">仅查看一次</option><option value="two-hours">2 小时有效</option></select></label></div><div class="create-content-fields" id="create-content-fields" hidden><label class="form-label" id="create-link-field" hidden>网址 / 普通文字<textarea name="linkContent" rows="3" placeholder="输入 https:// 开头的网址，或直接填写要付费展示的文字"></textarea><span class="create-field-hint">支付前隐藏，支付后展示网址或普通文字。</span></label><label class="form-label" id="create-sensitive-field" hidden>密码 / 授权文字<textarea name="sensitiveText" rows="3" placeholder="输入密码、提取码或授权文字"></textarea><span class="create-field-hint">支付前不会展示，支付后只在授权页面中显示。</span></label></div><label class="form-label">创作者寄语<textarea name="note" rows="3">感谢你的支持，这份内容耗费了很多心血。</textarea></label><div class="create-submit-bar"><p class="form-error" id="create-form-error" role="alert" hidden></p><button class="button button-primary full-width" id="create-submit-label" type="submit"><i class="ph ph-sparkle"></i> 生成安全链接</button></div></form></div></div>
+    <div class="modal-backdrop" id="login-modal" hidden><div class="modal-panel login-panel" role="dialog" aria-modal="true" aria-labelledby="login-title"><div class="modal-heading"><div><span class="eyebrow">ACCOUNT ACCESS</span><h2 id="login-title">登录创作者后台</h2><p>登录后管理内容、订单和收款。</p></div><button class="ghost-icon" type="button" data-action="close-modal" aria-label="关闭"><i class="ph ph-x"></i></button></div><form id="login-form"><label class="form-label">邮箱<input name="email" type="email" autocomplete="email" placeholder="creator@example.com" required /></label><label class="form-label">密码<input name="password" type="password" minlength="6" autocomplete="current-password" placeholder="至少 6 位字符" required /></label><p class="form-error" id="login-form-error" role="alert" hidden></p><button class="button button-primary full-width" type="submit"><i class="ph ph-sign-in"></i> 登录</button><p class="login-demo-note"><i class="ph ph-info"></i> 演示环境只保存登录状态，不保存密码。</p></form></div></div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260805content-map1"></script>
+    <script src="/app.js?v=20260805creator-flow1"></script>
   </body>
 </html>
