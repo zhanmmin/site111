@@ -46,6 +46,10 @@ const modeLabels = {
 };
 
 const PUBLIC_CONTENT_ID = getPublicContentId();
+let creatorToken = "";
+let creatorApiMode = false;
+let publicApiMode = false;
+let publicAccessToken = "";
 let state = loadState();
 if (PUBLIC_CONTENT_ID) {
   const sharedContent = state.contents?.find((content) => content.id === PUBLIC_CONTENT_ID);
@@ -100,7 +104,83 @@ function loadState() {
 }
 
 function saveState() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (error) { /* local demo can continue without persistence */ }
+  try {
+    const snapshot = creatorApiMode ? {
+      screen: state.screen,
+      orderFilter: state.orderFilter,
+      analyticsPeriod: state.analyticsPeriod,
+      session: state.session,
+      profile: state.profile,
+      security: state.security,
+    } : state;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+  } catch (error) { /* local demo can continue without persistence */ }
+}
+
+async function appApi(path, options = {}) {
+  const response = await fetch(`/api${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(creatorToken ? { Authorization: `Bearer ${creatorToken}` } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  if (!response.ok) {
+    const error = new Error(`API ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  return response.json();
+}
+
+function applyApiContent(content) {
+  const primary = content.images?.primary || {};
+  const secondary = content.images?.secondary || {};
+  return {
+    ...content,
+    price: formatMoney(content.price),
+    rule: content.rule === "two_hours" ? "two-hours" : content.rule || "window",
+    link: publicLinkFor(content.id),
+    imageData: primary.originalData || "",
+    previewData: primary.previewData || "",
+    imageData2: secondary.originalData || "",
+    previewData2: secondary.previewData || "",
+    imageName: primary.name || "",
+    imageName2: secondary.name || "",
+    published: content.status === "approved",
+    publishedAt: content.publishedAt || content.submittedAt,
+  };
+}
+
+async function hydrateCreatorFromApi() {
+  const [profile, contents] = await Promise.all([appApi("/creator/me"), appApi("/creator/contents")]);
+  creatorApiMode = true;
+  state.profile = { displayName: profile.displayName, email: profile.email, bio: profile.bio || "" };
+  state.session = { loggedIn: true, email: profile.email };
+  state.contents = contents.items.map(applyApiContent);
+  const currentId = getPublicLinkId(state.link);
+  const current = state.contents.find((content) => content.id === currentId) || state.contents[0];
+  if (current) applyContentRecord(current);
+  saveState();
+}
+
+async function hydratePublicContent() {
+  if (!PUBLIC_CONTENT_ID) return;
+  try {
+    const publicContent = await appApi(`/public/contents/${encodeURIComponent(PUBLIC_CONTENT_ID)}`);
+    publicApiMode = true;
+    state = { ...state, ...applyApiContent(publicContent), link: publicLinkFor(PUBLIC_CONTENT_ID), sensitiveText: "", textContent: "", linkContent: "" };
+    renderPublicRoutePage();
+  } catch (error) {
+    publicApiMode = false;
+  }
+}
+
+async function hydrateAccessGrant(token) {
+  const unlocked = await appApi(`/public/access/${encodeURIComponent(token)}`);
+  const content = applyApiContent({ ...unlocked, images: unlocked.images });
+  state = { ...state, ...content, authExpiresAt: unlocked.expiresAt ? new Date(unlocked.expiresAt).getTime() : null };
 }
 
 function formatMoney(value) {
@@ -225,7 +305,9 @@ function renderContentLibrary() {
     const icon = contentModeIcons[content.mode] || contentModeIcons.image;
     const link = publicLinkFor(content.id);
     const isCurrent = getPublicLinkId(state.link) === content.id;
-    return '<article class="content-library-row ' + (isCurrent ? 'is-current' : '') + '" data-content-id="' + escapeHtml(content.id) + '"><div class="content-library-main"><span class="content-library-icon"><i class="ph ' + icon + '"></i></span><div><strong>' + escapeHtml(content.title) + '</strong><span>' + escapeHtml(content.id) + ' · 发布时间：' + escapeHtml(formatDateTime(content.publishedAt)) + '</span><small class="content-library-link" title="' + escapeHtml(link) + '">' + escapeHtml(link) + '</small></div></div><span class="content-library-mode"><i class="ph ' + icon + '"></i>' + escapeHtml(mode.label) + '</span><strong class="content-library-price">¥ ' + escapeHtml(formatMoney(content.price)) + '<small>' + escapeHtml(String(content.sales || 0)) + ' 次支付</small></strong><span class="content-library-status"><i class="ph ph-check-circle"></i> 已发布' + (isCurrent ? ' · 当前编辑' : '') + '</span><div class="content-library-actions"><button type="button" data-action="edit-content" data-content-id="' + escapeHtml(content.id) + '">编辑</button><button type="button" data-action="open-public-link" data-content-id="' + escapeHtml(content.id) + '">打开</button><button type="button" data-action="copy-content-link" data-content-id="' + escapeHtml(content.id) + '">复制链接</button></div></article>';
+    const statusLabel = content.status === "pending" ? "审核中" : content.status === "rejected" ? "已驳回" : "已发布";
+    const statusIcon = content.status === "pending" ? "ph-hourglass-medium" : content.status === "rejected" ? "ph-warning-circle" : "ph-check-circle";
+    return '<article class="content-library-row ' + (isCurrent ? 'is-current' : '') + '" data-content-id="' + escapeHtml(content.id) + '"><div class="content-library-main"><span class="content-library-icon"><i class="ph ' + icon + '"></i></span><div><strong>' + escapeHtml(content.title) + '</strong><span>' + escapeHtml(content.id) + ' · 发布时间：' + escapeHtml(formatDateTime(content.publishedAt || content.submittedAt)) + '</span><small class="content-library-link" title="' + escapeHtml(link) + '">' + escapeHtml(link) + '</small></div></div><span class="content-library-mode"><i class="ph ' + icon + '"></i>' + escapeHtml(mode.label) + '</span><strong class="content-library-price">¥ ' + escapeHtml(formatMoney(content.price)) + '<small>' + escapeHtml(String(content.sales || 0)) + ' 次支付</small></strong><span class="content-library-status"><i class="ph ' + statusIcon + '"></i> ' + statusLabel + (isCurrent ? ' · 当前编辑' : '') + '</span><div class="content-library-actions"><button type="button" data-action="edit-content" data-content-id="' + escapeHtml(content.id) + '">编辑</button><button type="button" data-action="open-public-link" data-content-id="' + escapeHtml(content.id) + '">打开</button><button type="button" data-action="copy-content-link" data-content-id="' + escapeHtml(content.id) + '">复制链接</button></div></article>';
   }).join("");
 }
 
@@ -459,13 +541,22 @@ function setLoginFormError(message = "") {
   target.hidden = !message;
 }
 
-function handleLoginSubmit(form) {
+async function handleLoginSubmit(form) {
   const data = new FormData(form);
   const email = String(data.get("email") || "").trim();
   const password = String(data.get("password") || "");
   if (!email || !email.includes("@")) return setLoginFormError("请输入有效的邮箱地址");
   if (password.length < 6) return setLoginFormError("密码至少需要 6 位字符");
   setLoginFormError("");
+  try {
+    const result = await appApi("/creator/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+    creatorToken = result.token;
+    await hydrateCreatorFromApi();
+  } catch (error) {
+    creatorApiMode = false;
+    creatorToken = "";
+    if (error.status === 401) return setLoginFormError("创作者邮箱或密码不正确");
+  }
   state.session = { loggedIn: true, email };
   saveState();
   renderSession();
@@ -659,7 +750,23 @@ function startMockPayment() {
   if (visitorState === "paid") return;
   visitorState = "processing";
   renderVisitorPage();
-  visitorTimer = window.setTimeout(() => {
+  visitorTimer = window.setTimeout(async () => {
+    if (publicApiMode && PUBLIC_CONTENT_ID) {
+      try {
+        const checkout = await appApi("/public/contents/" + encodeURIComponent(PUBLIC_CONTENT_ID) + "/checkout", { method: "POST", body: JSON.stringify({ buyerName: "当前访客" }) });
+        publicAccessToken = checkout.accessToken;
+        await hydrateAccessGrant(publicAccessToken);
+        visitorState = "paid";
+        renderVisitorPage();
+        showToast("支付成功，访问授权已创建");
+        return;
+      } catch (error) {
+        visitorState = "failed";
+        renderVisitorPage();
+        showToast("支付未完成，请重新发起支付");
+        return;
+      }
+    }
     visitorState = "paid";
     state.authExpiresAt = state.rule === "once" ? null : Date.now() + 2 * 60 * 60 * 1000;
     state.orders.unshift({ id: `LP-240803-00${13 + state.orders.length}`, customer: "当前访客", content: `${modeLabels[state.mode].title} · ${modeLabels[state.mode].label}`, amount: formatMoney(state.price), time: "刚刚", status: "paid", initial: "访" });
@@ -735,6 +842,8 @@ function handleAction(action, element) {
     return openModal("login-modal");
   }
   if (action === "logout") {
+    creatorToken = "";
+    creatorApiMode = false;
     state.session = { loggedIn: false, email: "" };
     saveState();
     renderSession();
@@ -796,6 +905,7 @@ function handleAction(action, element) {
   if (action === "open-public-link") {
     const content = findContentById(element.dataset.contentId);
     if (!content) return showToast("内容不存在");
+    if (content.status === "pending") return showToast("内容正在审核，审核通过后才能打开公开页面");
     applyContentRecord(content);
     saveState();
     window.open(publicLinkFor(content.id), "_blank", "noopener,noreferrer");
@@ -839,7 +949,7 @@ function handleAction(action, element) {
   }
 }
 
-function handleCreateSubmit(form) {
+async function handleCreateSubmit(form) {
   const data = new FormData(form);
   const title = String(data.get("title") || "").trim();
   const rawPrice = String(data.get("price") || "").trim();
@@ -886,6 +996,39 @@ function handleCreateSubmit(form) {
     state.imageData2 = "";
     state.previewData2 = "";
     state.imageName2 = "";
+  }
+  if (creatorApiMode) {
+    try {
+      const payload = {
+        title,
+        mode: createMode,
+        price: numericPrice,
+        rule: state.rule,
+        note: state.note,
+        linkContent: state.linkContent,
+        textContent: state.textContent,
+        sensitiveText: state.sensitiveText,
+        images: {
+          primary: { data: state.imageData, preview: state.previewData },
+          secondary: { data: state.imageData2, preview: state.previewData2 },
+        },
+      };
+      const result = wasEditing
+        ? await appApi("/creator/contents/" + encodeURIComponent(editingContentId), { method: "PATCH", body: JSON.stringify(payload) })
+        : await appApi("/creator/contents", { method: "POST", body: JSON.stringify(payload) });
+      state.link = publicLinkFor(result.id);
+      state.published = false;
+      await hydrateCreatorFromApi();
+      editingContentId = null;
+      closeModals();
+      renderPublicPreview();
+      renderContentLibrary();
+      openPublishSuccessModal(wasEditing);
+      showToast("内容已提交审核，审核通过后公开链接生效");
+      return;
+    } catch (error) {
+      return setCreateFormError("保存失败，请检查网络或稍后重试");
+    }
   }
   state.link = wasEditing ? publicLinkFor(editingContentId) : publicLinkFor(Math.random().toString(36).slice(2, 8));
   state.published = true;
@@ -939,8 +1082,8 @@ document.addEventListener("change", (event) => {
   }
 });
 
-$("#create-form")?.addEventListener("submit", (event) => { event.preventDefault(); handleCreateSubmit(event.currentTarget); });
-$("#login-form")?.addEventListener("submit", (event) => { event.preventDefault(); handleLoginSubmit(event.currentTarget); });
+$("#create-form")?.addEventListener("submit", (event) => { event.preventDefault(); void handleCreateSubmit(event.currentTarget); });
+$("#login-form")?.addEventListener("submit", (event) => { event.preventDefault(); void handleLoginSubmit(event.currentTarget); });
 window.setInterval(() => {
   if (PUBLIC_CONTENT_ID) {
     if (visitorState === "paid") renderVisitorPage();
@@ -958,6 +1101,7 @@ if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
 
 if (PUBLIC_CONTENT_ID) {
   renderPublicRoutePage();
+  void hydratePublicContent();
 } else {
   syncCurrentContentRecord();
   saveState();

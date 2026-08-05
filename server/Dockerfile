@@ -10,4 +10,4 @@ COPY . .
 ENV NODE_ENV=production
 EXPOSE 8787
 
-CMD ["sh", "-c", "until node server/src/migrate.js; do echo 'waiting for mysql'; sleep 5; done; node server/src/seed.js && exec node server/src/index.js"]
+CMD ["node", "server/src/index.js"]

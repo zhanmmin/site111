@@ -1,0 +1,41 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: lumen_pass
+      MYSQL_USER: lumen_app
+      MYSQL_PASSWORD: lumen_app
+    ports:
+      - "3307:3306"
+    volumes:
+      - lumen_pass_mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -proot --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    environment:
+      PORT: 8787
+      JWT_SECRET: change-this-in-production
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: lumen_pass
+      MYSQL_USER: lumen_app
+      MYSQL_PASSWORD: lumen_app
+      MYSQL_ROOT_USER: root
+      MYSQL_ROOT_PASSWORD: root
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "8787:8787"
+    command: ["sh", "-c", "node server/src/migrate.js && node server/src/seed.js && node server/src/index.js"]
+
+volumes:
+  lumen_pass_mysql:

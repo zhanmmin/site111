@@ -23,3 +23,17 @@ python3 -m http.server 4173
 - 提供基础 PWA manifest 和 Service Worker
 - 独立管理员后台：访问 `/admin`，支持运营总览、内容审核、用户管理、交易风控和系统设置
 - 管理员演示账号：`admin@lumenpass.com` / `admin123`
+
+## MySQL 后端
+
+管理员后台和公开付费链路已提供 Node.js API，业务数据统一写入 MySQL：管理员、创作者、内容、图片原图与预览图、订单、访问授权、举报、平台设置和操作日志分别落在数据库表中。图片暂以 MySQL `MEDIUMBLOB` 保存，后续可以无缝替换为对象存储。
+
+本地启动完整服务：
+
+```bash
+COMPOSE_PROJECT_NAME=lumen-pass docker-compose up --build
+```
+
+启动后访问 `http://127.0.0.1:8787/admin`。API 健康检查为 `/api/health`。数据库迁移和演示数据会在 API 容器启动时自动执行；管理员账号仍为 `admin@lumenpass.com` / `admin123`，演示创作者账号可使用 `hello@lumenpass.com` / `creator123`。
+
+如果单独运行 API，先复制 `server/.env.example` 为 `server/.env`，再执行 `npm install`、`npm run migrate`、`npm run seed` 和 `npm start`。生产环境必须替换 `JWT_SECRET`、MySQL 密码，并通过部署环境注入 `MYSQL_*` 配置，不把密钥提交到仓库。

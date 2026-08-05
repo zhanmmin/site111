@@ -3,4 +3,6 @@
 .agents
 audit
 *.md
+server/node_modules
+server/.env
 design-qa-implementation.png

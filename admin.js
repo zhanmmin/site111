@@ -2,10 +2,11 @@
   const isAdminRoute = /^\/admin\/?$/i.test(window.location.pathname || "") || new URLSearchParams(window.location.search).get("admin") === "1";
   if (!isAdminRoute) return;
 
-  const adminData = {
+  let adminData = {
     contentFilter: "all",
     search: "",
     settings: { reviewScan: true, callbackGuard: true, maintenance: false },
+    overview: { gmv: 128460.8, orderCount: 486, activeCreators: 428, pendingContents: 3, openReports: 5 },
     contents: [
       { id: "PC-240805-0108", title: "摄影师通行码", creator: "夜航者", type: "密码文字", price: 18, status: "待审核", risk: "低风险", submitted: "今天 17:47" },
       { id: "PC-240805-0107", title: "城市黄昏摄影作品集", creator: "林间照相馆", type: "图片", price: 29.9, status: "待审核", risk: "低风险", submitted: "今天 16:31" },
@@ -34,11 +35,63 @@
 
   let adminScreen = "overview";
   let authenticated = false;
+  let apiMode = false;
+  let adminToken = "";
 
   const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
   const money = (value) => `¥ ${Number(value || 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const statusClass = (value) => /待审核|待结算|需复核/.test(value) ? "pending" : /驳回|退款|限制|高风险/.test(value) ? "danger" : "success";
   const iconForType = (value) => ({ 图片: "ph-image", 双图: "ph-images", "网址 / 文字": "ph-link", 密码文字: "ph-key" }[value] || "ph-file-text");
+
+  async function apiRequest(path, options = {}) {
+    const response = await fetch(`/api${path}`, { ...options, headers: { "Content-Type": "application/json", ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}), ...(options.headers || {}) } });
+    const contentType = response.headers.get("content-type") || "";
+    if (!response.ok) {
+      const error = new Error(`API ${response.status}`);
+      error.status = response.status;
+      error.apiAvailable = contentType.includes("application/json");
+      throw error;
+    }
+    return response.json();
+  }
+
+  async function hydrateFromApi() {
+    const [overview, contents, users, orders, settings] = await Promise.all([
+      apiRequest("/admin/overview"),
+      apiRequest("/admin/contents"),
+      apiRequest("/admin/users"),
+      apiRequest("/admin/orders"),
+      apiRequest("/admin/settings"),
+    ]);
+    const settingMap = Object.fromEntries(settings.items.map((item) => [item.key, item.value]));
+    adminData = {
+      ...adminData,
+      overview: { ...adminData.overview, ...overview },
+      contents: contents.items,
+      users: users.items,
+      orders: orders.items,
+      settings: {
+        reviewScan: settingMap.review_scan ?? adminData.settings.reviewScan,
+        callbackGuard: settingMap.callback_guard ?? adminData.settings.callbackGuard,
+        maintenance: settingMap.maintenance_mode ?? adminData.settings.maintenance,
+      },
+    };
+  }
+
+  async function authenticateAdmin(email, password) {
+    try {
+      const result = await apiRequest("/admin/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+      adminToken = result.token;
+      apiMode = true;
+      await hydrateFromApi();
+      return true;
+    } catch (error) {
+      if (error.apiAvailable) return false;
+      apiMode = false;
+      adminToken = "";
+      return email === "admin@lumenpass.com" && password === "admin123";
+    }
+  }
 
   function showAdminToast(message) {
     const toast = document.querySelector("#admin-toast");
@@ -72,7 +125,8 @@
   }
 
   function renderOverview() {
-    return `<div class="admin-page-heading"><div><span class="eyebrow">OPERATIONS OVERVIEW</span><h1>运营总览</h1><p>掌握平台内容、创作者、交易与风险状态。</p></div><div class="admin-heading-actions"><button class="button button-outline" type="button" data-admin-action="export-report"><i class="ph ph-download-simple"></i> 导出运营报表</button><button class="button button-primary" type="button" data-admin-screen="content"><i class="ph ph-shield-check"></i> 查看待审核</button></div></div><div class="admin-stat-grid"><article class="admin-stat-card is-revenue"><span>平台交易额</span><strong>${money(128460.8)}</strong><small><i class="ph ph-arrow-up-right"></i> 较上月增长 18.6%</small></article><article class="admin-stat-card"><span>活跃创作者</span><strong>428</strong><small><i class="ph ph-arrow-up-right"></i> 本月新增 36 位</small></article><article class="admin-stat-card"><span>待审核内容</span><strong>${adminData.contents.filter((item) => item.status === "待审核").length}</strong><small>平均处理时长 18 分钟</small></article><article class="admin-stat-card"><span>待处理举报</span><strong>5</strong><small class="is-warning"><i class="ph ph-warning"></i> 2 条高优先级</small></article></div><div class="admin-overview-grid"><section class="admin-panel admin-revenue-panel"><div class="admin-panel-heading"><div><span class="eyebrow">GMV TREND</span><h2>平台交易趋势</h2><p>最近 30 天 · 已支付订单</p></div><span class="admin-panel-value">${money(128460.8)}</span></div><div class="admin-chart"><div class="admin-chart-bars">${[38, 52, 44, 67, 56, 75, 64, 86, 72, 94, 78, 88].map((height) => `<span style="height:${height}%"></span>`).join("")}</div><div class="admin-chart-axis"><span>07/07</span><span>07/14</span><span>07/21</span><span>07/28</span><span>08/05</span></div></div></section><section class="admin-panel admin-task-panel"><div class="admin-panel-heading"><div><span class="eyebrow">ACTION CENTER</span><h2>待处理事项</h2></div><i class="ph ph-list-check admin-panel-icon"></i></div><div class="admin-task-list"><button type="button" data-admin-screen="content"><span class="admin-task-dot pending"></span><div><strong>内容审核</strong><small>${adminData.contents.filter((item) => item.status === "待审核").length} 条内容等待处理</small></div><i class="ph ph-arrow-right"></i></button><button type="button" data-admin-screen="users"><span class="admin-task-dot danger"></span><div><strong>用户风险复核</strong><small>2 个账号需要进一步核验</small></div><i class="ph ph-arrow-right"></i></button><button type="button" data-admin-screen="orders"><span class="admin-task-dot success"></span><div><strong>结算对账</strong><small>今天 18:00 自动生成</small></div><i class="ph ph-arrow-right"></i></button></div></section></div><section class="admin-panel admin-activity-panel"><div class="admin-panel-heading"><div><span class="eyebrow">RECENT ACTIVITY</span><h2>最近动态</h2></div><button class="admin-text-button" type="button" data-admin-action="view-audit-log">查看操作日志 <i class="ph ph-arrow-right"></i></button></div><div class="admin-activity-list"><div><span class="admin-activity-icon"><i class="ph ph-check-circle"></i></span><p><strong>林间照相馆</strong> 的内容《城市黄昏摄影作品集》已提交审核</p><time>6 分钟前</time></div><div><span class="admin-activity-icon"><i class="ph ph-user-plus"></i></span><p>新创作者 <strong>Kite Studio</strong> 完成邮箱验证</p><time>18 分钟前</time></div><div><span class="admin-activity-icon"><i class="ph ph-credit-card"></i></span><p>平台完成一笔 <strong>${money(49)}</strong> 的订单结算</p><time>32 分钟前</time></div></div></section>`;
+    const metrics = adminData.overview || {};
+    return `<div class="admin-page-heading"><div><span class="eyebrow">OPERATIONS OVERVIEW</span><h1>运营总览</h1><p>掌握平台内容、创作者、交易与风险状态。</p></div><div class="admin-heading-actions"><button class="button button-outline" type="button" data-admin-action="export-report"><i class="ph ph-download-simple"></i> 导出运营报表</button><button class="button button-primary" type="button" data-admin-screen="content"><i class="ph ph-shield-check"></i> 查看待审核</button></div></div><div class="admin-stat-grid"><article class="admin-stat-card is-revenue"><span>平台交易额</span><strong>${money(metrics.gmv || 0)}</strong><small><i class="ph ph-arrow-up-right"></i> 较上月增长 18.6%</small></article><article class="admin-stat-card"><span>活跃创作者</span><strong>${metrics.activeCreators || 0}</strong><small><i class="ph ph-arrow-up-right"></i> 本月新增 36 位</small></article><article class="admin-stat-card"><span>待审核内容</span><strong>${metrics.pendingContents ?? adminData.contents.filter((item) => item.status === "待审核").length}</strong><small>平均处理时长 18 分钟</small></article><article class="admin-stat-card"><span>待处理举报</span><strong>${metrics.openReports || 0}</strong><small class="is-warning"><i class="ph ph-warning"></i> 2 条高优先级</small></article></div><div class="admin-overview-grid"><section class="admin-panel admin-revenue-panel"><div class="admin-panel-heading"><div><span class="eyebrow">GMV TREND</span><h2>平台交易趋势</h2><p>最近 30 天 · 已支付订单</p></div><span class="admin-panel-value">${money(metrics.gmv || 0)}</span></div><div class="admin-chart"><div class="admin-chart-bars">${[38, 52, 44, 67, 56, 75, 64, 86, 72, 94, 78, 88].map((height) => `<span style="height:${height}%"></span>`).join("")}</div><div class="admin-chart-axis"><span>07/07</span><span>07/14</span><span>07/21</span><span>07/28</span><span>08/05</span></div></div></section><section class="admin-panel admin-task-panel"><div class="admin-panel-heading"><div><span class="eyebrow">ACTION CENTER</span><h2>待处理事项</h2></div><i class="ph ph-list-check admin-panel-icon"></i></div><div class="admin-task-list"><button type="button" data-admin-screen="content"><span class="admin-task-dot pending"></span><div><strong>内容审核</strong><small>${adminData.contents.filter((item) => item.status === "待审核").length} 条内容等待处理</small></div><i class="ph ph-arrow-right"></i></button><button type="button" data-admin-screen="users"><span class="admin-task-dot danger"></span><div><strong>用户风险复核</strong><small>2 个账号需要进一步核验</small></div><i class="ph ph-arrow-right"></i></button><button type="button" data-admin-screen="orders"><span class="admin-task-dot success"></span><div><strong>结算对账</strong><small>今天 18:00 自动生成</small></div><i class="ph ph-arrow-right"></i></button></div></section></div><section class="admin-panel admin-activity-panel"><div class="admin-panel-heading"><div><span class="eyebrow">RECENT ACTIVITY</span><h2>最近动态</h2></div><button class="admin-text-button" type="button" data-admin-action="view-audit-log">查看操作日志 <i class="ph ph-arrow-right"></i></button></div><div class="admin-activity-list"><div><span class="admin-activity-icon"><i class="ph ph-check-circle"></i></span><p><strong>林间照相馆</strong> 的内容《城市黄昏摄影作品集》已提交审核</p><time>6 分钟前</time></div><div><span class="admin-activity-icon"><i class="ph ph-user-plus"></i></span><p>新创作者 <strong>Kite Studio</strong> 完成邮箱验证</p><time>18 分钟前</time></div><div><span class="admin-activity-icon"><i class="ph ph-credit-card"></i></span><p>平台完成一笔 <strong>${money(49)}</strong> 的订单结算</p><time>32 分钟前</time></div></div></section>`;
   }
 
   function renderContentReview() {
@@ -87,7 +141,7 @@
   }
 
   function renderUsers() {
-    return `<div class="admin-page-heading"><div><span class="eyebrow">CREATOR MANAGEMENT</span><h1>用户管理</h1><p>管理创作者账号、内容规模和平台收入贡献。</p></div><div class="admin-heading-actions"><button class="button button-outline" type="button" data-admin-action="export-users"><i class="ph ph-download-simple"></i> 导出用户</button><button class="button button-primary" type="button" data-admin-action="invite-creator"><i class="ph ph-user-plus"></i> 邀请创作者</button></div></div><div class="admin-stat-grid admin-user-stats"><article class="admin-stat-card"><span>注册创作者</span><strong>1,284</strong><small><i class="ph ph-arrow-up-right"></i> 本月新增 86 位</small></article><article class="admin-stat-card"><span>已认证账号</span><strong>936</strong><small>认证率 72.9%</small></article><article class="admin-stat-card"><span>正常运营</span><strong>1,247</strong><small>占全部创作者 97.1%</small></article><article class="admin-stat-card"><span>限制中</span><strong>37</strong><small class="is-warning"><i class="ph ph-warning"></i> 需要持续关注</small></article></div><section class="admin-panel admin-table-panel"><div class="admin-panel-heading"><div><span class="eyebrow">CREATORS</span><h2>创作者列表</h2><p>账号状态和收入数据实时同步</p></div><form class="admin-search admin-search-compact" id="admin-user-search"><i class="ph ph-magnifying-glass"></i><input name="query" placeholder="搜索姓名或邮箱" aria-label="搜索创作者" /><button type="submit">搜索</button></form></div><div class="admin-table admin-user-table"><div class="admin-table-head"><span>创作者</span><span>内容数</span><span>累计收入</span><span>最近活跃</span><span>状态</span><span>操作</span></div>${adminData.users.map((user) => `<div class="admin-table-row"><div class="admin-user-name"><span class="admin-user-avatar">${escapeHtml(user.name.slice(0, 1))}</span><div><strong>${escapeHtml(user.name)}</strong><small>${escapeHtml(user.email)}</small></div></div><span>${user.contents} 条</span><b>${money(user.revenue)}</b><span>${escapeHtml(user.lastActive)}</span><span class="admin-status-badge ${statusClass(user.status)}">${escapeHtml(user.status)}</span><div class="admin-row-actions"><button type="button" data-admin-action="view-user" data-user-name="${escapeHtml(user.name)}">查看</button>${user.status === "正常" ? `<button class="is-danger" type="button" data-admin-action="suspend-user" data-user-name="${escapeHtml(user.name)}">限制</button>` : `<button type="button" data-admin-action="restore-user" data-user-name="${escapeHtml(user.name)}">恢复</button>`}</div></div>`).join("")}</div></section>`;
+    return `<div class="admin-page-heading"><div><span class="eyebrow">CREATOR MANAGEMENT</span><h1>用户管理</h1><p>管理创作者账号、内容规模和平台收入贡献。</p></div><div class="admin-heading-actions"><button class="button button-outline" type="button" data-admin-action="export-users"><i class="ph ph-download-simple"></i> 导出用户</button><button class="button button-primary" type="button" data-admin-action="invite-creator"><i class="ph ph-user-plus"></i> 邀请创作者</button></div></div><div class="admin-stat-grid admin-user-stats"><article class="admin-stat-card"><span>注册创作者</span><strong>1,284</strong><small><i class="ph ph-arrow-up-right"></i> 本月新增 86 位</small></article><article class="admin-stat-card"><span>已认证账号</span><strong>936</strong><small>认证率 72.9%</small></article><article class="admin-stat-card"><span>正常运营</span><strong>1,247</strong><small>占全部创作者 97.1%</small></article><article class="admin-stat-card"><span>限制中</span><strong>37</strong><small class="is-warning"><i class="ph ph-warning"></i> 需要持续关注</small></article></div><section class="admin-panel admin-table-panel"><div class="admin-panel-heading"><div><span class="eyebrow">CREATORS</span><h2>创作者列表</h2><p>账号状态和收入数据实时同步</p></div><form class="admin-search admin-search-compact" id="admin-user-search"><i class="ph ph-magnifying-glass"></i><input name="query" placeholder="搜索姓名或邮箱" aria-label="搜索创作者" /><button type="submit">搜索</button></form></div><div class="admin-table admin-user-table"><div class="admin-table-head"><span>创作者</span><span>内容数</span><span>累计收入</span><span>最近活跃</span><span>状态</span><span>操作</span></div>${adminData.users.map((user) => `<div class="admin-table-row"><div class="admin-user-name"><span class="admin-user-avatar">${escapeHtml(user.name.slice(0, 1))}</span><div><strong>${escapeHtml(user.name)}</strong><small>${escapeHtml(user.email)}</small></div></div><span>${user.contents} 条</span><b>${money(user.revenue)}</b><span>${escapeHtml(user.lastActive)}</span><span class="admin-status-badge ${statusClass(user.status)}">${escapeHtml(user.status)}</span><div class="admin-row-actions"><button type="button" data-admin-action="view-user" data-user-id="${escapeHtml(user.id || "")}" data-user-name="${escapeHtml(user.name)}">查看</button>${user.status === "正常" ? `<button class="is-danger" type="button" data-admin-action="suspend-user" data-user-id="${escapeHtml(user.id || "")}" data-user-name="${escapeHtml(user.name)}">限制</button>` : `<button type="button" data-admin-action="restore-user" data-user-id="${escapeHtml(user.id || "")}" data-user-name="${escapeHtml(user.name)}">恢复</button>`}</div></div>`).join("")}</div></section>`;
   }
 
   function renderOrders() {
@@ -107,12 +161,12 @@
     document.querySelectorAll("[data-admin-screen]").forEach((button) => button.classList.toggle("is-active", button.dataset.adminScreen === adminScreen));
   }
 
-  function handleAdminSubmit(form) {
+  async function handleAdminSubmit(form) {
     if (form.id === "admin-login-form") {
       const data = new FormData(form);
       const email = String(data.get("email") || "").trim().toLowerCase();
       const password = String(data.get("password") || "");
-      if (email !== "admin@lumenpass.com" || password !== "admin123") return renderAdminLogin("管理员邮箱或密码不正确");
+      if (!(await authenticateAdmin(email, password))) return renderAdminLogin("管理员邮箱或密码不正确");
       authenticated = true;
       renderAdminShell();
       return;
@@ -125,20 +179,53 @@
     if (form.id === "admin-user-search") showAdminToast("用户搜索结果已更新");
   }
 
-  function handleAdminAction(action, element) {
+  async function handleAdminAction(action, element) {
     const content = adminData.contents.find((item) => item.id === element.dataset.contentId);
-    const user = adminData.users.find((item) => item.name === element.dataset.userName);
+    const user = adminData.users.find((item) => String(item.id || "") === String(element.dataset.userId || "") || item.name === element.dataset.userName);
     if (action === "logout-admin") { authenticated = false; renderAdminLogin(); return; }
     if (action === "export-report" || action === "export-content" || action === "export-users" || action === "export-orders") { showAdminToast("报表已生成，正在准备下载"); return; }
-    if (action === "approve-content" && content) { content.status = "已通过"; renderAdminScreen(); showAdminToast(`已通过《${content.title}》的审核`); return; }
-    if (action === "reject-content" && content) { content.status = "已驳回"; renderAdminScreen(); showAdminToast(`已驳回《${content.title}》`); return; }
+    if (action === "approve-content" && content) {
+      if (apiMode) { try { await apiRequest(`/admin/contents/${encodeURIComponent(content.id)}/status`, { method: "PATCH", body: JSON.stringify({ status: "approved" }) }); } catch (error) { showAdminToast("数据库操作失败，请稍后重试"); return; } }
+      content.status = "已通过";
+      renderAdminScreen();
+      showAdminToast(`已通过《${content.title}》的审核`);
+      return;
+    }
+    if (action === "reject-content" && content) {
+      if (apiMode) { try { await apiRequest(`/admin/contents/${encodeURIComponent(content.id)}/status`, { method: "PATCH", body: JSON.stringify({ status: "rejected" }) }); } catch (error) { showAdminToast("数据库操作失败，请稍后重试"); return; } }
+      content.status = "已驳回";
+      renderAdminScreen();
+      showAdminToast(`已驳回《${content.title}》`);
+      return;
+    }
     if (action === "view-content" && content) { showAdminToast(`已打开《${content.title}》的审核详情`); return; }
-    if (action === "suspend-user" && user) { user.status = "限制中"; renderAdminScreen(); showAdminToast(`已限制账号：${user.name}`); return; }
-    if (action === "restore-user" && user) { user.status = "正常"; renderAdminScreen(); showAdminToast(`已恢复账号：${user.name}`); return; }
+    if (action === "suspend-user" && user) {
+      if (apiMode) { try { await apiRequest(`/admin/users/${encodeURIComponent(user.id)}/status`, { method: "PATCH", body: JSON.stringify({ status: "suspended" }) }); } catch (error) { showAdminToast("数据库操作失败，请稍后重试"); return; } }
+      user.status = "限制中";
+      renderAdminScreen();
+      showAdminToast(`已限制账号：${user.name}`);
+      return;
+    }
+    if (action === "restore-user" && user) {
+      if (apiMode) { try { await apiRequest(`/admin/users/${encodeURIComponent(user.id)}/status`, { method: "PATCH", body: JSON.stringify({ status: "active" }) }); } catch (error) { showAdminToast("数据库操作失败，请稍后重试"); return; } }
+      user.status = "正常";
+      renderAdminScreen();
+      showAdminToast(`已恢复账号：${user.name}`);
+      return;
+    }
     if (action === "view-user" && user) { showAdminToast(`已打开 ${user.name} 的账号详情`); return; }
     if (action === "invite-creator") { showAdminToast("邀请链接已生成"); return; }
     if (action === "view-audit-log" || action === "view-risk-log") { adminScreen = "settings"; renderAdminScreen(); showAdminToast("已切换到操作日志"); return; }
-    if (action === "toggle-setting") { const key = element.dataset.settingKey; if (key) adminData.settings[key] = !adminData.settings[key]; renderAdminScreen(); return; }
+    if (action === "toggle-setting") {
+      const key = element.dataset.settingKey;
+      if (!key) return;
+      const settingKeys = { reviewScan: "review_scan", callbackGuard: "callback_guard", maintenance: "maintenance_mode" };
+      const nextValue = !adminData.settings[key];
+      if (apiMode) { try { await apiRequest(`/admin/settings/${settingKeys[key]}`, { method: "PATCH", body: JSON.stringify({ value: nextValue }) }); } catch (error) { showAdminToast("数据库操作失败，请稍后重试"); return; } }
+      adminData.settings[key] = nextValue;
+      renderAdminScreen();
+      return;
+    }
     if (action === "save-settings") { showAdminToast("平台设置已保存"); return; }
   }
 
@@ -150,6 +237,6 @@
     const actionButton = event.target.closest("[data-admin-action]");
     if (actionButton) { handleAdminAction(actionButton.dataset.adminAction, actionButton); return; }
   });
-  document.addEventListener("submit", (event) => { if (event.target.matches("#admin-login-form, #admin-content-search, #admin-user-search")) { event.preventDefault(); handleAdminSubmit(event.target); } });
+  document.addEventListener("submit", (event) => { if (event.target.matches("#admin-login-form, #admin-content-search, #admin-user-search")) { event.preventDefault(); void handleAdminSubmit(event.target); } });
   renderAdminLogin();
 })();
