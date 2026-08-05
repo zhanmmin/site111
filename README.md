@@ -21,3 +21,5 @@ python3 -m http.server 4173
 - 真实公开访问路由：分享链接使用当前域名的 `/p/:id`，买家可直接进入支付页
 - 使用 `localStorage` 保存当前内容与本地演示订单
 - 提供基础 PWA manifest 和 Service Worker
+- 独立管理员后台：访问 `/admin`，支持运营总览、内容审核、用户管理、交易风控和系统设置
+- 管理员演示账号：`admin@lumenpass.com` / `admin123`
