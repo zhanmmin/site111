@@ -16,6 +16,12 @@ const seedState = {
   sensitiveText: "LUMEN-2026\n授权码：N8QF-72KX-PA4M\n有效期：支付后 2 小时",
   published: true,
   contents: [],
+  imageData: "",
+  previewData: "",
+  imageName: "",
+  imageData2: "",
+  previewData2: "",
+  imageName2: "",
   session: { loggedIn: false, email: "" },
   profile: { displayName: "夜航者", email: "hello@lumenpass.com", bio: "记录光线、城市与被认真对待的内容。" },
   security: { callbackSignature: true, sensitiveCopy: true, scanUploads: true },
@@ -56,11 +62,19 @@ let toastTimer = null;
 let copyFallbackTimer = null;
 let createMode = state.mode;
 let editingContentId = null;
+let draftImages = { primary: {}, secondary: {} };
 
 function $(selector, scope = document) { return scope.querySelector(selector); }
 function $$(selector, scope = document) { return [...scope.querySelectorAll(selector)]; }
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
+}
+
+function imageDraftFromContent(content = {}) {
+  return {
+    primary: { data: content.imageData || "", preview: content.previewData || "", name: content.imageName || "" },
+    secondary: { data: content.imageData2 || "", preview: content.previewData2 || "", name: content.imageName2 || "" },
+  };
 }
 
 function loadState() {
@@ -157,6 +171,12 @@ function syncCurrentContentRecord({ markPublished = false } = {}) {
     linkContent: state.linkContent || "",
     textContent: state.textContent || "",
     sensitiveText: state.sensitiveText || "",
+    imageData: state.imageData || "",
+    previewData: state.previewData || "",
+    imageName: state.imageName || "",
+    imageData2: state.imageData2 || "",
+    previewData2: state.previewData2 || "",
+    imageName2: state.imageName2 || "",
     status: "published",
     publishedAt: markPublished ? now : publishedAt,
     updatedAt: markPublished ? now : existing?.updatedAt || publishedAt,
@@ -183,6 +203,12 @@ function applyContentRecord(content) {
   state.linkContent = content.linkContent || "";
   state.textContent = content.textContent || "";
   state.sensitiveText = content.sensitiveText || "";
+  state.imageData = content.imageData || "";
+  state.previewData = content.previewData || "";
+  state.imageName = content.imageName || "";
+  state.imageData2 = content.imageData2 || "";
+  state.previewData2 = content.previewData2 || "";
+  state.imageName2 = content.imageName2 || "";
   state.published = content.status !== "draft";
 }
 
@@ -236,13 +262,31 @@ function modeMediaContent(viewState, compact = false) {
     return `<div class="unlock-content is-visible"><div class="unlock-meta"><span><i class="ph ph-check-circle"></i> 已解锁普通文字</span><button class="copy-button" type="button" data-action="copy-text-content"><i class="ph ph-copy"></i> 一键复制</button></div><pre>${escapeHtml(state.textContent || "文字内容已解锁")}</pre></div>`;
   }
   if (paid && !expired && state.mode === "dual") {
-    return `<div class="unlock-content is-visible"><div class="unlock-meta"><span><i class="ph ph-images"></i> 支付后图片</span><span>高清版本已授权</span></div><p class="unlock-message">第二张图片已解锁，可在授权有效期内查看。</p></div>`;
+    return `<div class="unlock-content is-visible"><div class="unlock-meta"><span><i class="ph ph-images"></i> 双图已解锁</span><span>高清版本已授权</span></div><p class="unlock-message">两张原图已展示，可在授权有效期内查看。</p></div>`;
   }
   if (paid && !expired) {
-    return `<div class="unlock-content is-visible"><div class="unlock-meta"><span><i class="ph ph-image"></i> 高清原图已解锁</span><span>安全授权中</span></div><p class="unlock-message">原始内容已准备好，当前页面仅展示本地演示状态。</p></div>`;
+    return `<div class="unlock-content is-visible"><div class="unlock-meta"><span><i class="ph ph-image"></i> 高清原图已解锁</span><span>安全授权中</span></div><p class="unlock-message">原图已展示，可在授权有效期内查看。</p></div>`;
   }
   if (expired) return `<div class="expired-panel"><i class="ph ph-clock-countdown"></i><strong>授权已过期</strong><span>重新支付后可再次查看内容</span></div>`;
   return `<div class="lock-center ${compact ? "compact" : ""}"><i class="ph ${icon}"></i><strong>${escapeHtml(expired ? "授权已过期" : "未解锁")}</strong><span>${escapeHtml(text)}</span></div>`;
+}
+
+function renderMediaVisual(viewState, mediaAlt) {
+  const paid = viewState === "paid" && viewState !== "expired";
+  const hasImageMode = state.mode === "image" || state.mode === "dual";
+  if (!hasImageMode) {
+    const fallback = paid ? assetUrl("assets/unlocked-preview.png") : assetUrl("assets/locked-preview.png");
+    return `<img src="${fallback}" alt="${mediaAlt}" />`;
+  }
+  const primary = paid ? state.imageData : state.previewData;
+  const secondary = paid ? state.imageData2 : state.previewData2;
+  const fallback = paid ? assetUrl("assets/unlocked-preview.png") : assetUrl("assets/locked-preview.png");
+  if (state.mode === "dual" && (primary || secondary)) {
+    const first = primary || fallback;
+    const second = secondary || first;
+    return `<div class="media-image-grid"><img src="${escapeHtml(first)}" alt="${mediaAlt} 1" /><img src="${escapeHtml(second)}" alt="${mediaAlt} 2" /></div>`;
+  }
+  return `<img class="content-image ${primary ? "has-upload" : ""}" src="${escapeHtml(primary || fallback)}" alt="${mediaAlt}" />`;
 }
 
 function renderPreviewCard(target, viewState = "unpaid", modal = false) {
@@ -260,11 +304,10 @@ function renderPreviewCard(target, viewState = "unpaid", modal = false) {
   const paymentHint = paid
     ? (state.mode === "sensitive" ? "授权文字已显示，仅当前安全会话可见" : state.mode === "link" ? "内容已解锁，可安全打开网址" : "内容已解锁，可在授权有效期内查看")
     : state.mode === "sensitive" ? "支付成功后才会显示密码文字" : state.mode === "link" ? "支付成功后才会显示文字或打开网址" : "支付后立即解锁完整内容";
-  const mediaAsset = paid && !expired ? assetUrl("assets/unlocked-preview.png") : assetUrl("assets/locked-preview.png");
   const mediaAlt = paid && !expired ? "已解锁的高清内容" : "受保护的内容预览";
   const mediaOverlay = paid && !expired ? "" : modeMediaContent(viewState, modal);
   const unlockedContent = paid && !expired ? modeMediaContent(viewState, modal) : "";
-  const media = `<div class="visitor-media ${paid ? "is-unlocked" : ""} ${expired ? "is-expired" : ""}"><img src="${mediaAsset}" alt="${mediaAlt}" />${mediaOverlay}</div>`;
+  const media = `<div class="visitor-media ${paid ? "is-unlocked" : ""} ${expired ? "is-expired" : ""}">${renderMediaVisual(viewState, mediaAlt)}${mediaOverlay}</div>`;
   const paidNote = paid && state.mode === "sensitive" ? "授权有效，内容仅在本次安全会话中展示。" : state.note;
   target.innerHTML = `<div class="visitor-preview-inner ${modal ? "modal-preview-inner" : ""}">
     <div class="visitor-topline"><span>${modal ? "Lumen Pass 安全内容页" : "买家打开后将看到的页面"}</span><button class="mini-action" type="button" data-action="report-content"><i class="ph ph-flag"></i> 举报</button></div>
@@ -409,12 +452,115 @@ function updateCreateFields() {
   const contentFields = $("#create-content-fields");
   const linkField = $("#create-link-field");
   const sensitiveField = $("#create-sensitive-field");
-  if (!contentFields || !linkField || !sensitiveField) return;
+  const imageFields = $("#image-upload-fields");
+  const secondaryUpload = $("#image-upload-secondary");
+  if (!contentFields || !linkField || !sensitiveField || !imageFields) return;
   const isLink = createMode === "link";
   const isSensitive = createMode === "sensitive";
+  const isImage = createMode === "image";
+  const isDual = createMode === "dual";
   contentFields.hidden = !isLink && !isSensitive;
+  imageFields.hidden = !isImage && !isDual;
   linkField.hidden = !isLink;
   sensitiveField.hidden = !isSensitive;
+  if (secondaryUpload) secondaryUpload.hidden = !isDual;
+  renderImageUploadFields();
+}
+
+function renderImageUploadFields() {
+  ["primary", "secondary"].forEach((slot) => {
+    const item = draftImages[slot] || {};
+    const preview = $(`#image-preview-${slot}`);
+    const meta = $(`#image-meta-${slot}`);
+    if (!preview || !meta) return;
+    if (item.preview) {
+      preview.innerHTML = `<img src="${escapeHtml(item.preview)}" alt="${escapeHtml(item.name || "已生成预览图")}" /><span class="image-preview-badge"><i class="ph ph-shield-check"></i> 已生成加密预览</span><button type="button" class="image-clear-button" data-action="clear-image" data-image-slot="${slot}">移除</button>`;
+      preview.classList.add("has-preview");
+      meta.textContent = item.name || "已选择图片";
+    } else {
+      preview.innerHTML = `<i class="ph ph-image-square"></i><span>选择图片后自动生成预览图</span>`;
+      preview.classList.remove("has-preview");
+      meta.textContent = "尚未选择图片";
+    }
+  });
+}
+
+function readImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("image-read-failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function optimizeImageData(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const maxSize = 2200;
+      const scale = Math.min(1, maxSize / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) return reject(new Error("canvas-not-supported"));
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/jpeg", .9));
+    };
+    image.onerror = () => reject(new Error("image-optimize-failed"));
+    image.src = dataUrl;
+  });
+}
+
+function generateImagePreview(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const maxSize = 1280;
+      const scale = Math.min(1, maxSize / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) return reject(new Error("canvas-not-supported"));
+      context.filter = "blur(12px)";
+      context.drawImage(image, -8, -8, canvas.width + 16, canvas.height + 16);
+      context.filter = "none";
+      context.fillStyle = "rgba(7, 26, 51, .12)";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/jpeg", .82));
+    };
+    image.onerror = () => reject(new Error("image-preview-failed"));
+    image.src = dataUrl;
+  });
+}
+
+async function handleImageInput(input) {
+  const slot = input.dataset.imageInput;
+  const file = input.files?.[0];
+  if (!slot || !file) return;
+  if (!file.type.startsWith("image/")) {
+    setCreateFormError("请上传 JPG、PNG、WEBP 等图片文件");
+    input.value = "";
+    return;
+  }
+  if (file.size > 6 * 1024 * 1024) {
+    setCreateFormError("图片不能超过 6 MB");
+    input.value = "";
+    return;
+  }
+  setCreateFormError("");
+  try {
+    const source = await readImageFile(file);
+    const data = await optimizeImageData(source);
+    const preview = await generateImagePreview(data);
+    draftImages[slot] = { data, preview, name: file.name };
+    renderImageUploadFields();
+    showToast("图片已上传，预览图已生成");
+  } catch (error) {
+    setCreateFormError("图片读取失败，请换一张图片重试");
+  }
 }
 
 function setCreateFormError(message = "") {
@@ -426,7 +572,8 @@ function setCreateFormError(message = "") {
 
 function openCreateForm(content = null) {
   editingContentId = content?.id || null;
-  createMode = content?.mode || state.mode;
+  createMode = content?.mode || "image";
+  draftImages = imageDraftFromContent(content || {});
   $("#create-title").textContent = editingContentId ? "编辑付费内容" : "创建一条付费内容";
   $("#create-submit-label").innerHTML = '<i class="ph ' + (editingContentId ? "ph-check" : "ph-sparkle") + '"></i> ' + (editingContentId ? "保存内容" : "生成安全链接");
   $("#create-form [name=title]").value = content?.title || modeLabels[createMode].title;
@@ -553,6 +700,16 @@ function handleAction(action, element) {
   if (action === "open-visitor") return openModal("visitor-modal");
   if (action === "open-create") return openCreateForm();
   if (action === "close-modal") return closeModals();
+  if (action === "clear-image") {
+    const slot = element.dataset.imageSlot;
+    if (slot) {
+      draftImages[slot] = {};
+      const input = $(`[data-image-input="${slot}"]`);
+      if (input) input.value = "";
+      renderImageUploadFields();
+    }
+    return;
+  }
   if (action === "simulate-payment") return startMockPayment();
   if (action === "simulate-failure") { visitorState = "failed"; renderVisitorPage(); showToast("支付未完成，请重新发起支付"); return; }
   if (action === "copy-link") return copyText(state.link, "公开链接已复制");
@@ -627,6 +784,8 @@ function handleCreateSubmit(form) {
   const sensitiveText = String(data.get("sensitiveText") || "").trim();
   if (!title) return setCreateFormError("请填写内容标题");
   if (!Number.isFinite(numericPrice) || numericPrice <= 0) return setCreateFormError("价格需要大于 0 元");
+  if (createMode === "image" && !draftImages.primary?.data) return setCreateFormError("请先上传一张图片");
+  if (createMode === "dual" && (!draftImages.primary?.data || !draftImages.secondary?.data)) return setCreateFormError("双图模式需要上传两张图片");
   if (createMode === "link" && !linkOrText) return setCreateFormError("请填写要展示的网址或普通文字");
   if (createMode === "sensitive" && !sensitiveText) return setCreateFormError("请填写支付后展示的密码或授权文字");
   setCreateFormError("");
@@ -648,6 +807,22 @@ function handleCreateSubmit(form) {
   if (createMode !== "link") { state.linkContent = ""; state.textContent = ""; }
   if (createMode === "sensitive") state.sensitiveText = sensitiveText;
   if (createMode !== "sensitive") state.sensitiveText = "";
+  if (createMode === "image" || createMode === "dual") {
+    state.imageData = draftImages.primary.data || "";
+    state.previewData = draftImages.primary.preview || "";
+    state.imageName = draftImages.primary.name || "";
+    state.imageData2 = createMode === "dual" ? draftImages.secondary.data || "" : "";
+    state.previewData2 = createMode === "dual" ? draftImages.secondary.preview || "" : "";
+    state.imageName2 = createMode === "dual" ? draftImages.secondary.name || "" : "";
+  }
+  if (createMode !== "image" && createMode !== "dual") {
+    state.imageData = "";
+    state.previewData = "";
+    state.imageName = "";
+    state.imageData2 = "";
+    state.previewData2 = "";
+    state.imageName2 = "";
+  }
   state.link = wasEditing ? publicLinkFor(editingContentId) : publicLinkFor(Math.random().toString(36).slice(2, 8));
   state.published = true;
   syncCurrentContentRecord({ markPublished: true });
@@ -681,6 +856,10 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("change", (event) => {
+  if (event.target.matches("[data-image-input]")) {
+    handleImageInput(event.target);
+    return;
+  }
   if (event.target.matches("#price-input")) {
     const nextPrice = Number(event.target.value);
     if (!Number.isFinite(nextPrice) || nextPrice <= 0) {
