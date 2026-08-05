@@ -1,4 +1,5 @@
 const STORAGE_KEY = "lumen-pass-demo-v1";
+const CREATOR_TOKEN_KEY = "lumen-pass-creator-token";
 const ASSET_ROOT = window.location.protocol === "file:" ? "" : `${window.location.origin}/`;
 
 const seedState = {
@@ -46,11 +47,14 @@ const modeLabels = {
 };
 
 const PUBLIC_CONTENT_ID = getPublicContentId();
-let creatorToken = "";
+let creatorToken = readCreatorToken();
 let creatorApiMode = false;
 let publicApiMode = false;
 let publicAccessToken = "";
 let state = loadState();
+if (!creatorToken && !PUBLIC_CONTENT_ID && state.session?.loggedIn) {
+  state.session = { loggedIn: false, email: "" };
+}
 if (PUBLIC_CONTENT_ID) {
   const sharedContent = state.contents?.find((content) => content.id === PUBLIC_CONTENT_ID);
   if (sharedContent) {
@@ -72,6 +76,18 @@ function $(selector, scope = document) { return scope.querySelector(selector); }
 function $$(selector, scope = document) { return [...scope.querySelectorAll(selector)]; }
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
+}
+
+function readCreatorToken() {
+  try { return sessionStorage.getItem(CREATOR_TOKEN_KEY) || ""; } catch (error) { return ""; }
+}
+
+function persistCreatorToken(token = "") {
+  creatorToken = token;
+  try {
+    if (token) sessionStorage.setItem(CREATOR_TOKEN_KEY, token);
+    else sessionStorage.removeItem(CREATOR_TOKEN_KEY);
+  } catch (error) { /* private browsing can disable session storage */ }
 }
 
 function imageDraftFromContent(content = {}) {
@@ -135,8 +151,9 @@ async function appApi(path, options = {}) {
 }
 
 function applyApiContent(content) {
-  const primary = content.images?.primary || {};
-  const secondary = content.images?.secondary || {};
+  const imageMap = content.images || content.previewImages || {};
+  const primary = imageMap.primary || {};
+  const secondary = imageMap.secondary || {};
   return {
     ...content,
     price: formatMoney(content.price),
@@ -163,6 +180,26 @@ async function hydrateCreatorFromApi() {
   const current = state.contents.find((content) => content.id === currentId) || state.contents[0];
   if (current) applyContentRecord(current);
   saveState();
+}
+
+async function restoreCreatorSession() {
+  if (!creatorToken) return;
+  try {
+    await hydrateCreatorFromApi();
+    renderPublicPreview();
+    renderContentLibrary();
+    renderOrders();
+    renderAnalyticsPeriod();
+    renderPayoutHistory();
+    renderSettings();
+    renderSession();
+  } catch (error) {
+    persistCreatorToken();
+    creatorApiMode = false;
+    state.session = { loggedIn: false, email: "" };
+    saveState();
+    renderSession();
+  }
 }
 
 async function hydratePublicContent() {
@@ -550,11 +587,11 @@ async function handleLoginSubmit(form) {
   setLoginFormError("");
   try {
     const result = await appApi("/creator/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
-    creatorToken = result.token;
+    persistCreatorToken(result.token);
     await hydrateCreatorFromApi();
   } catch (error) {
     creatorApiMode = false;
-    creatorToken = "";
+    persistCreatorToken();
     if (error.status === 401) return setLoginFormError("创作者邮箱或密码不正确");
   }
   state.session = { loggedIn: true, email };
@@ -842,7 +879,7 @@ function handleAction(action, element) {
     return openModal("login-modal");
   }
   if (action === "logout") {
-    creatorToken = "";
+    persistCreatorToken();
     creatorApiMode = false;
     state.session = { loggedIn: false, email: "" };
     saveState();
@@ -1052,7 +1089,7 @@ document.addEventListener("click", (event) => {
     return;
   }
   const modeButton = event.target.closest("[data-mode]");
-  if (modeButton) { state.mode = modeButton.dataset.mode; state.title = modeLabels[state.mode].title; syncCurrentContentRecord(); saveState(); renderPublicPreview(); renderContentLibrary(); return; }
+  if (modeButton) { state.mode = modeButton.dataset.mode; state.title = modeLabels[state.mode].title; saveState(); renderPublicPreview(); return; }
   const ruleButton = event.target.closest("[data-rule]");
   if (ruleButton) { state.rule = ruleButton.dataset.rule; syncCurrentContentRecord(); saveState(); renderPublicPreview(); renderContentLibrary(); showToast(`访问规则已切换为：${getRuleLabel()}`); return; }
   const createModeButton = event.target.closest("[data-create-mode]");
@@ -1103,7 +1140,9 @@ if (PUBLIC_CONTENT_ID) {
   renderPublicRoutePage();
   void hydratePublicContent();
 } else {
-  syncCurrentContentRecord();
+  const currentContent = findContentById(getPublicLinkId(state.link));
+  if (currentContent) applyContentRecord(currentContent);
+  else syncCurrentContentRecord();
   saveState();
   renderPublicPreview();
   renderContentLibrary();
@@ -1113,4 +1152,5 @@ if (PUBLIC_CONTENT_ID) {
   renderSettings();
   renderSession();
   switchScreen(state.screen || "content");
+  void restoreCreatorSession();
 }
