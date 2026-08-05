@@ -55,6 +55,8 @@ img { display: block; max-width: 100%; }
 .site-main { width: min(100% - 80px, 1400px); margin: 0 auto; padding: 25px 0 74px; }
 .site-breadcrumb { display: flex; align-items: center; gap: 9px; color: #949b9f; font-size: 10px; }
 .site-breadcrumb i { color: #c0c1bd; font-size: 12px; }
+.breadcrumb-link { padding: 0; color: #949b9f; background: transparent; font-size: inherit; }
+.breadcrumb-link:hover { color: var(--blue); text-decoration: underline; text-underline-offset: 3px; }
 .site-breadcrumb strong { color: #5d6970; font-weight: 500; }
 .screen { display: none; padding-top: 42px; animation: page-in .22s ease-out; }
 .screen.is-active { display: block; }
