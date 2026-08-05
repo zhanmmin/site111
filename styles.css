@@ -172,6 +172,13 @@ img { display: block; max-width: 100%; }
 .inspector-section { padding: 0 0 22px 26px; margin-bottom: 22px; border-bottom: 1px solid var(--paper-line); }
 .inspector-section:last-of-type { margin-bottom: 0; }
 .inspector-helper { margin: 0 0 10px; color: #9a9f9f; font-size: 10px; }
+.publish-settings-summary { padding-bottom: 20px; }
+.setting-summary-list { display: grid; gap: 0; margin: 15px 0 17px; border-top: 1px solid #e7e6e1; }
+.setting-summary-list > div { display: flex; align-items: center; justify-content: space-between; gap: 15px; min-height: 47px; border-bottom: 1px solid #e7e6e1; }
+.setting-summary-list span { display: inline-flex; align-items: center; gap: 7px; color: #8a9598; font-size: 10px; }
+.setting-summary-list span i { color: var(--blue); font-size: 14px; }
+.setting-summary-list strong { color: #435461; font-size: 10px; font-weight: 600; text-align: right; }
+.publish-settings-summary .button { min-height: 36px; }
 .rule-options { display: grid; gap: 0; }
 .rule-option { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 11px; align-items: center; width: 100%; min-height: 59px; padding: 8px 0; color: #4b5a68; background: transparent; border-bottom: 1px solid #e7e6e1; text-align: left; }
 .rule-option:first-child { border-top: 1px solid #e7e6e1; }

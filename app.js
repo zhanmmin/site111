@@ -243,9 +243,9 @@ function getRuleLabel(rule = state.rule) {
 }
 
 function getExpiryLabel() {
-  if (state.rule === "once") return "查看一次后失效";
+  if (state.rule === "once") return "仅本次查看，关闭后失效";
   if (state.rule === "two-hours") return "支付后 2 小时有效";
-  return "授权有效期 2 小时";
+  return "支付后可查看，授权 2 小时有效";
 }
 
 function modeMediaContent(viewState, compact = false) {
@@ -343,8 +343,14 @@ function renderPublicPreview() {
   if (preview) renderPreviewCard(preview, "unpaid");
   $$(".mode-button").forEach((button) => button.classList.toggle("is-active", button.dataset.mode === state.mode));
   $$(".rule-option").forEach((button) => button.classList.toggle("is-selected", button.dataset.rule === state.rule));
-  $("#price-input").value = formatMoney(state.price);
-  $("#public-link").value = state.link;
+  const currentRule = $("#current-rule-label");
+  if (currentRule) currentRule.textContent = getRuleLabel();
+  const currentPrice = $("#current-price-label");
+  if (currentPrice) currentPrice.textContent = `¥ ${formatMoney(state.price)}`;
+  const priceInput = $("#price-input");
+  if (priceInput) priceInput.value = formatMoney(state.price);
+  const publicLink = $("#public-link");
+  if (publicLink) publicLink.value = state.link;
 }
 
 function renderPublicRoutePage() {
@@ -609,6 +615,10 @@ function openCreateForm(content = null) {
 }
 
 function closeModals() {
+  if (!$("#visitor-modal")?.hidden && visitorState === "paid" && state.rule === "once") {
+    visitorState = "expired";
+    state.authExpiresAt = null;
+  }
   $$(".modal-backdrop").forEach((modal) => { modal.hidden = true; });
   window.clearTimeout(visitorTimer);
   visitorTimer = null;
@@ -623,6 +633,7 @@ function showToast(message) {
 }
 
 function getRemainingTime() {
+  if (state.rule === "once") return "本次查看有效，关闭后失效";
   if (!state.authExpiresAt) return "授权有效期 2 小时";
   const remaining = Math.max(0, state.authExpiresAt - Date.now());
   const hours = Math.floor(remaining / 3600000);
@@ -636,7 +647,7 @@ function startMockPayment() {
   renderVisitorPage();
   visitorTimer = window.setTimeout(() => {
     visitorState = "paid";
-    state.authExpiresAt = Date.now() + 2 * 60 * 60 * 1000;
+    state.authExpiresAt = state.rule === "once" ? null : Date.now() + 2 * 60 * 60 * 1000;
     state.orders.unshift({ id: `LP-240803-00${13 + state.orders.length}`, customer: "当前访客", content: `${modeLabels[state.mode].title} · ${modeLabels[state.mode].label}`, amount: formatMoney(state.price), time: "刚刚", status: "paid", initial: "访" });
     saveState();
     renderVisitorPage();
@@ -864,7 +875,7 @@ function handleCreateSubmit(form) {
   closeModals();
   renderPublicPreview();
   renderContentLibrary();
-  showToast(wasEditing ? "内容已保存，公开链接保持不变" : "安全链接已生成，可继续调整访问设置");
+  showToast(wasEditing ? "内容已保存，公开链接保持不变" : "安全链接已生成，可在内容库中继续编辑");
 }
 
 document.addEventListener("click", (event) => {
