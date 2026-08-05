@@ -549,6 +549,10 @@ function switchScreen(screen) {
   const menuButton = $(".header-menu-button");
   header?.classList.remove("is-nav-open");
   menuButton?.setAttribute("aria-expanded", "false");
+  if (screen === "content") {
+    renderPublicPreview();
+    renderContentLibrary();
+  }
   if (screen === "orders") renderOrders();
   if (screen === "analytics") renderAnalyticsPeriod();
   if (screen === "payout") renderPayoutHistory();
