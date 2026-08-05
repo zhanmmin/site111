@@ -21,6 +21,8 @@
 5. 顶部创作者入口改为登录弹窗，登录后进入设置页；演示环境只保存登录状态，不保存密码。— 已调整，见 `06-login-dialog.png`。
 6. 图片内容新增主图上传、双图上传、6 MB 校验、原图压缩和自动生成加密预览；未上传时阻止发布。— 已调整，见 `07-image-upload.png`。
 7. 移除管理员编辑区内重复的买家预览卡、CONTENT EDITOR / 发布前编辑标题和付款前状态提示，保留轻量创建内容入口及右侧访问、价格、链接设置。— 已调整，见 `08-preview-cleanup.png`。
+8. 订单列表的支付状态图标标记缺少结束引号，导致后续订单被嵌入第一条状态标签、列表挤成一列。— 已修复，见 `09-orders-layout-before.png` 与 `10-orders-layout-after.png`。
+9. 图片内容支付解锁后新增“下载原图”按钮；双图内容按主图和第二张图片分别提供下载入口。— 已调整，见 `11-unlocked-image-download.png`。
 
 ## 证据截图
 
@@ -32,6 +34,9 @@
 - `06-login-dialog.png`：创作者登录入口和登录弹窗。
 - `07-image-upload.png`：图片内容的上传入口、预览生成提示和未上传校验。
 - `08-preview-cleanup.png`：精简后的发布工作区，保留发布入口和必要配置。
+- `09-orders-layout-before.png`：订单状态标记异常导致列表行嵌套的复查证据。
+- `10-orders-layout-after.png`：修复后订单按行正常展示，状态标签不再吞并后续订单。
+- `11-unlocked-image-download.png`：图片支付解锁后的下载原图入口。
 
 ## 兼容说明
 

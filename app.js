@@ -262,10 +262,10 @@ function modeMediaContent(viewState, compact = false) {
     return `<div class="unlock-content is-visible"><div class="unlock-meta"><span><i class="ph ph-check-circle"></i> 已解锁普通文字</span><button class="copy-button" type="button" data-action="copy-text-content"><i class="ph ph-copy"></i> 一键复制</button></div><pre>${escapeHtml(state.textContent || "文字内容已解锁")}</pre></div>`;
   }
   if (paid && !expired && state.mode === "dual") {
-    return `<div class="unlock-content is-visible"><div class="unlock-meta"><span><i class="ph ph-images"></i> 双图已解锁</span><span>高清版本已授权</span></div><p class="unlock-message">两张原图已展示，可在授权有效期内查看。</p></div>`;
+    return `<div class="unlock-content is-visible"><div class="unlock-meta"><span><i class="ph ph-images"></i> 双图已解锁</span><span>高清版本已授权</span></div><p class="unlock-message">两张原图已展示，可在授权有效期内查看。</p>${renderImageDownloadActions()}</div>`;
   }
   if (paid && !expired) {
-    return `<div class="unlock-content is-visible"><div class="unlock-meta"><span><i class="ph ph-image"></i> 高清原图已解锁</span><span>安全授权中</span></div><p class="unlock-message">原图已展示，可在授权有效期内查看。</p></div>`;
+    return `<div class="unlock-content is-visible"><div class="unlock-meta"><span><i class="ph ph-image"></i> 高清原图已解锁</span><span>安全授权中</span></div><p class="unlock-message">原图已展示，可在授权有效期内查看。</p>${renderImageDownloadActions()}</div>`;
   }
   if (expired) return `<div class="expired-panel"><i class="ph ph-clock-countdown"></i><strong>授权已过期</strong><span>重新支付后可再次查看内容</span></div>`;
   return `<div class="lock-center ${compact ? "compact" : ""}"><i class="ph ${icon}"></i><strong>${escapeHtml(expired ? "授权已过期" : "未解锁")}</strong><span>${escapeHtml(text)}</span></div>`;
@@ -287,6 +287,24 @@ function renderMediaVisual(viewState, mediaAlt) {
     return `<div class="media-image-grid"><img src="${escapeHtml(first)}" alt="${mediaAlt} 1" /><img src="${escapeHtml(second)}" alt="${mediaAlt} 2" /></div>`;
   }
   return `<img class="content-image ${primary ? "has-upload" : ""}" src="${escapeHtml(primary || fallback)}" alt="${mediaAlt}" />`;
+}
+
+function imageDownloadItems() {
+  const slug = String(state.title || "lumen-pass-content").trim().replace(/[^\w\u4e00-\u9fff-]+/g, "-").replace(/^-+|-+$/g, "") || "lumen-pass-content";
+  if (state.mode === "dual") {
+    return [
+      { data: state.imageData, label: "下载主图", filename: `${slug}-01.jpg`, slot: "primary" },
+      { data: state.imageData2, label: "下载第二张", filename: `${slug}-02.jpg`, slot: "secondary" },
+    ].filter((item) => item.data);
+  }
+  if (state.mode !== "image") return [];
+  return [{ data: state.imageData || assetUrl("assets/unlocked-preview.png"), label: "下载原图", filename: `${slug}.jpg`, slot: "primary" }];
+}
+
+function renderImageDownloadActions() {
+  const items = imageDownloadItems();
+  if (!items.length) return "";
+  return `<div class="download-actions" aria-label="下载已解锁图片">${items.map((item) => `<button class="download-button" type="button" data-action="download-image" data-image-slot="${item.slot}" aria-label="${item.label}"><i class="ph ph-download-simple"></i> ${item.label}</button>`).join("")}</div>`;
 }
 
 function renderPreviewCard(target, viewState = "unpaid", modal = false) {
@@ -345,7 +363,7 @@ function renderOrders() {
   const filter = state.orderFilter || "all";
   const filteredOrders = filter === "all" ? state.orders : state.orders.filter((order) => order.status === filter);
   $("#order-total").textContent = String(120 + state.orders.length + 3);
-  $("#order-table").innerHTML = filteredOrders.length ? filteredOrders.map((order) => `<div class="order-row"><div class="order-customer"><span class="order-avatar">${escapeHtml(order.initial)}</span><div><strong>${escapeHtml(order.customer)}</strong><span>${escapeHtml(order.id)}</span></div></div><span>${escapeHtml(order.content)}</span><b>¥ ${escapeHtml(order.amount)}</b><span>${escapeHtml(order.time)}</span><span class="status-badge ${order.status === "paid" ? "success" : "pending"}"><i class="ph ${order.status === "paid" ? "ph-check-circle" : "ph-hourglass-medium"}></i>${order.status === "paid" ? "已支付" : "处理中"}</span></div>`).join("") : `<div class="table-empty"><i class="ph ph-receipt"></i><strong>没有${filter === "paid" ? "已支付" : "处理中"}订单</strong><span>切换筛选条件后可查看其他交易。</span></div>`;
+  $("#order-table").innerHTML = filteredOrders.length ? filteredOrders.map((order) => `<div class="order-row" role="listitem" aria-label="订单 ${escapeHtml(order.id)}"><div class="order-customer"><span class="order-avatar">${escapeHtml(order.initial)}</span><div><strong>${escapeHtml(order.customer)}</strong><span>${escapeHtml(order.id)}</span></div></div><span>${escapeHtml(order.content)}</span><b>¥ ${escapeHtml(order.amount)}</b><span>${escapeHtml(order.time)}</span><span class="status-badge ${order.status === "paid" ? "success" : "pending"}"><i class="ph ${order.status === "paid" ? "ph-check-circle" : "ph-hourglass-medium"}"></i>${order.status === "paid" ? "已支付" : "处理中"}</span></div>`).join("") : `<div class="table-empty"><i class="ph ph-receipt"></i><strong>没有${filter === "paid" ? "已支付" : "处理中"}订单</strong><span>切换筛选条件后可查看其他交易。</span></div>`;
   $$("[data-order-filter]").forEach((button) => { const active = button.dataset.orderFilter === filter; button.classList.toggle("is-active", active); button.setAttribute("aria-pressed", String(active)); });
 }
 
@@ -713,6 +731,19 @@ function handleAction(action, element) {
   }
   if (action === "simulate-payment") return startMockPayment();
   if (action === "simulate-failure") { visitorState = "failed"; renderVisitorPage(); showToast("支付未完成，请重新发起支付"); return; }
+  if (action === "download-image") {
+    const item = imageDownloadItems().find((download) => download.slot === element.dataset.imageSlot);
+    if (!item?.data) return showToast("当前内容没有可下载的图片");
+    const downloadLink = document.createElement("a");
+    downloadLink.href = item.data;
+    downloadLink.download = item.filename;
+    downloadLink.rel = "noopener";
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    downloadLink.remove();
+    showToast("图片下载已开始");
+    return;
+  }
   if (action === "copy-link") return copyText(state.link, "公开链接已复制");
   if (action === "copy-text-content") return copyText(state.textContent, "文字内容已复制");
   if (action === "copy-sensitive") return copyText(state.sensitiveText, "敏感文字已复制");
