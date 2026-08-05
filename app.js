@@ -69,6 +69,11 @@ function loadState() {
     nextState.profile = { ...seedState.profile, ...(saved?.profile || {}) };
     nextState.security = { ...seedState.security, ...(saved?.security || {}) };
     nextState.payouts = Array.isArray(saved?.payouts) ? saved.payouts : structuredClone(seedState.payouts);
+    nextState.contents = Array.isArray(saved?.contents) ? saved.contents.map((content) => ({
+      ...content,
+      publishedAt: content.publishedAt || content.updatedAt || new Date().toISOString(),
+      updatedAt: content.updatedAt || content.publishedAt || new Date().toISOString(),
+    })) : [];
     nextState.link = publicLinkFor(getPublicLinkId(nextState.link) || "7x9kL2");
     return nextState;
   } catch (error) {
@@ -85,6 +90,24 @@ function saveState() {
 function formatMoney(value) {
   const number = Number(String(value ?? "").replace(/,/g, ""));
   return Number.isFinite(number) ? number.toFixed(2) : "18.00";
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+  if (!value || Number.isNaN(date.getTime())) return "时间未记录";
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date).reduce((result, part) => {
+    if (part.type !== "literal") result[part.type] = part.value;
+    return result;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
 function safeHttpUrl(value) {
@@ -115,10 +138,12 @@ function publicLinkFor(id) {
 
 const contentModeIcons = { image: "ph-image", dual: "ph-images", link: "ph-link", sensitive: "ph-key" };
 
-function syncCurrentContentRecord() {
+function syncCurrentContentRecord({ markPublished = false } = {}) {
   if (!Array.isArray(state.contents)) state.contents = [];
   const id = getPublicLinkId(state.link) || "7x9kL2";
   const existing = state.contents.find((content) => content.id === id);
+  const now = new Date().toISOString();
+  const publishedAt = existing?.publishedAt || now;
   const record = {
     id,
     title: state.title,
@@ -131,7 +156,8 @@ function syncCurrentContentRecord() {
     textContent: state.textContent || "",
     sensitiveText: state.sensitiveText || "",
     status: "published",
-    updated: "刚刚",
+    publishedAt: markPublished ? now : publishedAt,
+    updatedAt: markPublished ? now : existing?.updatedAt || publishedAt,
     views: existing?.views || 0,
     sales: existing?.sales || 0,
   };
@@ -169,7 +195,9 @@ function renderContentLibrary() {
   target.innerHTML = contents.map((content) => {
     const mode = modeLabels[content.mode] || modeLabels.image;
     const icon = contentModeIcons[content.mode] || contentModeIcons.image;
-    return '<article class="content-library-row"><div class="content-library-main"><span class="content-library-icon"><i class="ph ' + icon + '"></i></span><div><strong>' + escapeHtml(content.title) + '</strong><span>' + escapeHtml(content.id) + ' · 更新于 ' + escapeHtml(content.updated || "刚刚") + '</span></div></div><span class="content-library-mode"><i class="ph ' + icon + '"></i>' + escapeHtml(mode.label) + '</span><strong class="content-library-price">¥ ' + escapeHtml(formatMoney(content.price)) + '<small>' + escapeHtml(String(content.sales || 0)) + ' 次支付</small></strong><span class="content-library-status"><i class="ph ph-check-circle"></i> 已发布</span><div class="content-library-actions"><button type="button" data-action="edit-content" data-content-id="' + escapeHtml(content.id) + '">编辑</button><button type="button" data-action="open-public-link" data-content-id="' + escapeHtml(content.id) + '">打开</button><button type="button" data-action="copy-content-link" data-content-id="' + escapeHtml(content.id) + '">复制链接</button></div></article>';
+    const link = publicLinkFor(content.id);
+    const isCurrent = getPublicLinkId(state.link) === content.id;
+    return '<article class="content-library-row ' + (isCurrent ? 'is-current' : '') + '" data-content-id="' + escapeHtml(content.id) + '"><div class="content-library-main"><span class="content-library-icon"><i class="ph ' + icon + '"></i></span><div><strong>' + escapeHtml(content.title) + '</strong><span>' + escapeHtml(content.id) + ' · 发布时间：' + escapeHtml(formatDateTime(content.publishedAt)) + '</span><small class="content-library-link" title="' + escapeHtml(link) + '">' + escapeHtml(link) + '</small></div></div><span class="content-library-mode"><i class="ph ' + icon + '"></i>' + escapeHtml(mode.label) + '</span><strong class="content-library-price">¥ ' + escapeHtml(formatMoney(content.price)) + '<small>' + escapeHtml(String(content.sales || 0)) + ' 次支付</small></strong><span class="content-library-status"><i class="ph ph-check-circle"></i> 已发布' + (isCurrent ? ' · 当前编辑' : '') + '</span><div class="content-library-actions"><button type="button" data-action="edit-content" data-content-id="' + escapeHtml(content.id) + '">编辑</button><button type="button" data-action="open-public-link" data-content-id="' + escapeHtml(content.id) + '">打开</button><button type="button" data-action="copy-content-link" data-content-id="' + escapeHtml(content.id) + '">复制链接</button></div></article>';
   }).join("");
 }
 
@@ -495,7 +523,7 @@ function handleAction(action, element) {
     window.open(publicLinkFor(content.id), "_blank", "noopener,noreferrer");
     return;
   }
-  if (action === "publish") { state.published = true; syncCurrentContentRecord(); saveState(); renderContentLibrary(); showToast("已发布更新，公开链接保持不变"); return; }
+  if (action === "publish") { state.published = true; syncCurrentContentRecord({ markPublished: true }); saveState(); renderContentLibrary(); showToast("已发布更新，公开链接保持不变"); return; }
   if (action === "cycle-analytics-period") {
     const periods = ["7", "30", "90"];
     const nextPeriod = periods[(periods.indexOf(state.analyticsPeriod || "30") + 1) % periods.length];
@@ -565,7 +593,7 @@ function handleCreateSubmit(form) {
   if (createMode !== "sensitive") state.sensitiveText = "";
   state.link = wasEditing ? publicLinkFor(editingContentId) : publicLinkFor(Math.random().toString(36).slice(2, 8));
   state.published = true;
-  syncCurrentContentRecord();
+  syncCurrentContentRecord({ markPublished: true });
   editingContentId = null;
   saveState();
   closeModals();
