@@ -292,10 +292,11 @@ function renderMediaVisual(viewState, mediaAlt) {
 function imageDownloadItems() {
   const slug = String(state.title || "lumen-pass-content").trim().replace(/[^\w\u4e00-\u9fff-]+/g, "-").replace(/^-+|-+$/g, "") || "lumen-pass-content";
   if (state.mode === "dual") {
+    const fallback = assetUrl("assets/unlocked-preview.png");
     return [
-      { data: state.imageData, label: "下载主图", filename: `${slug}-01.jpg`, slot: "primary" },
-      { data: state.imageData2, label: "下载第二张", filename: `${slug}-02.jpg`, slot: "secondary" },
-    ].filter((item) => item.data);
+      { data: state.imageData || fallback, label: "下载主图", filename: `${slug}-01.jpg`, slot: "primary" },
+      { data: state.imageData2 || state.imageData || fallback, label: "下载第二张", filename: `${slug}-02.jpg`, slot: "secondary" },
+    ];
   }
   if (state.mode !== "image") return [];
   return [{ data: state.imageData || assetUrl("assets/unlocked-preview.png"), label: "下载原图", filename: `${slug}.jpg`, slot: "primary" }];
