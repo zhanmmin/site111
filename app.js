@@ -320,7 +320,8 @@ function renderPreviewCard(target, viewState = "unpaid", modal = false) {
 }
 
 function renderPublicPreview() {
-  renderPreviewCard($("#public-preview"), "unpaid");
+  const preview = $("#public-preview");
+  if (preview) renderPreviewCard(preview, "unpaid");
   $$(".mode-button").forEach((button) => button.classList.toggle("is-active", button.dataset.mode === state.mode));
   $$(".rule-option").forEach((button) => button.classList.toggle("is-selected", button.dataset.rule === state.rule));
   $("#price-input").value = formatMoney(state.price);
