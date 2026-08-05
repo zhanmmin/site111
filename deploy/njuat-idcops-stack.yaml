@@ -54,7 +54,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: mysql
-          image: mysql:8.4
+          image: registry.nj-prod-dce.saicstack.com/public/mysql:5.7
           imagePullPolicy: IfNotPresent
           ports:
             - name: mysql
