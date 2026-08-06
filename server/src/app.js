@@ -369,14 +369,23 @@ app.post("/api/creator/contents", asyncRoute(async (req, res) => {
   const mode = String(body.mode || "image");
   const title = String(body.title || "").trim().slice(0, 160);
   const price = Number(body.price);
+  const images = body.images || {};
+  const hasPrimaryImage = Boolean(parseDataUrl(images.primary?.originalData || images.primary?.data || ""));
+  const hasSecondaryImage = Boolean(parseDataUrl(images.secondary?.originalData || images.secondary?.data || ""));
+  const linkOrText = String(body.linkContent || body.textContent || "").trim();
+  const sensitiveText = String(body.sensitiveText || "").trim();
   if (!Object.keys(modeLabels).includes(mode) || !title || !Number.isFinite(price) || price <= 0) return res.status(400).json({ error: "INVALID_INPUT", message: "内容模式、标题和价格不能为空" });
+  if (mode === "image" && !hasPrimaryImage) return res.status(400).json({ error: "INVALID_INPUT", message: "图片内容必须包含原图" });
+  if (mode === "dual" && (!hasPrimaryImage || !hasSecondaryImage)) return res.status(400).json({ error: "INVALID_INPUT", message: "双图内容必须包含两张原图" });
+  if (mode === "link" && !linkOrText) return res.status(400).json({ error: "INVALID_INPUT", message: "网址或文字内容不能为空" });
+  if (mode === "sensitive" && !sensitiveText) return res.status(400).json({ error: "INVALID_INPUT", message: "密码文字内容不能为空" });
   const id = randomId("PC");
   const pool = getPool();
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
     await connection.query("INSERT INTO contents (id, creator_id, title, mode, price, access_rule, note, link_content, text_content, sensitive_text, status, risk_level) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'low')", [id, Number(req.creator.sub), title, mode, price, toDbRule(String(body.rule || "window")), String(body.note || "").trim(), String(body.linkContent || "").trim() || null, String(body.textContent || "").trim() || null, String(body.sensitiveText || "").trim() || null]);
-    await saveAssets(connection, id, body.images || {});
+    await saveAssets(connection, id, images);
     await connection.commit();
   } catch (error) {
     await connection.rollback();

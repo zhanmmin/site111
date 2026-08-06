@@ -52,6 +52,7 @@ const CREATOR_MANAGEMENT_ONLINE = window.location.protocol !== "file:" && !PUBLI
 let creatorToken = readCreatorToken();
 let creatorApiMode = false;
 let publicApiMode = false;
+let publicContentUnavailable = false;
 let publicAccessToken = "";
 let state = loadState();
 if (!creatorToken && !PUBLIC_CONTENT_ID && state.session?.loggedIn) {
@@ -66,10 +67,10 @@ if (CREATOR_MANAGEMENT_ONLINE && !creatorToken) {
   state.session = { loggedIn: false, email: "" };
 }
 if (PUBLIC_CONTENT_ID) {
-  const sharedContent = state.contents?.find((content) => content.id === PUBLIC_CONTENT_ID);
+  const sharedContent = window.location.protocol === "file:" ? state.contents?.find((content) => content.id === PUBLIC_CONTENT_ID) : null;
   if (sharedContent) {
     state = { ...state, ...sharedContent, link: publicLinkFor(PUBLIC_CONTENT_ID) };
-  } else if (getPublicLinkId(state.link) !== PUBLIC_CONTENT_ID) {
+  } else {
     state = structuredClone(seedState);
     state.link = publicLinkFor(PUBLIC_CONTENT_ID);
   }
@@ -234,10 +235,13 @@ async function hydratePublicContent() {
   try {
     const publicContent = await appApi(`/public/contents/${encodeURIComponent(PUBLIC_CONTENT_ID)}`);
     publicApiMode = true;
+    publicContentUnavailable = false;
     state = { ...state, ...applyApiContent(publicContent), link: publicLinkFor(PUBLIC_CONTENT_ID), sensitiveText: "", textContent: "", linkContent: "" };
     renderPublicRoutePage();
   } catch (error) {
     publicApiMode = false;
+    publicContentUnavailable = true;
+    renderPublicUnavailablePage();
   }
 }
 
@@ -505,14 +509,31 @@ function renderPublicPreview() {
   if (publicLink) publicLink.value = state.link;
 }
 
+function publicHomeLink() {
+  return window.location.protocol === "file:" ? "./index.html" : `${window.location.origin}/admin`;
+}
+
+function renderPublicLoadingPage() {
+  const homeLink = publicHomeLink();
+  document.body.className = "public-route-body";
+  document.body.innerHTML = '<div class="public-route-shell"><header class="public-route-header"><a class="public-route-brand" href="' + escapeHtml(homeLink) + '"><span class="brand-symbol"><i class="ph ph-sparkle"></i></span><span>Lumen Pass</span></a><span class="public-route-status"><i class="ph ph-shield-check"></i> SECURE CONTENT</span></header><main class="public-route-main"><div class="public-route-intro"><span class="eyebrow">PUBLIC CONTENT</span><h1>正在验证内容</h1><p>请稍候，我们正在确认这条公开链接的状态。</p></div></main></div>';
+}
+
+function renderPublicUnavailablePage() {
+  const homeLink = publicHomeLink();
+  document.body.className = "public-route-body";
+  document.body.innerHTML = '<div class="public-route-shell"><header class="public-route-header"><a class="public-route-brand" href="' + escapeHtml(homeLink) + '"><span class="brand-symbol"><i class="ph ph-sparkle"></i></span><span>Lumen Pass</span></a><span class="public-route-status"><i class="ph ph-shield-check"></i> SECURE CONTENT</span></header><main class="public-route-main"><div class="public-route-intro"><span class="eyebrow">CONTENT UNAVAILABLE</span><h1>内容暂不可用</h1><p>该内容不存在、尚未通过审核或已被下架，请返回后重新选择已发布内容。</p><a class="button button-primary" href="' + escapeHtml(homeLink) + '">返回管理后台</a></div></main></div>';
+}
+
 function renderPublicRoutePage() {
-  const homeLink = window.location.protocol === "file:" ? "./index.html" : `${window.location.origin}/admin`;
+  const homeLink = publicHomeLink();
   document.body.className = "public-route-body";
   document.body.innerHTML = '<div class="public-route-shell"><header class="public-route-header"><a class="public-route-brand" href="' + escapeHtml(homeLink) + '"><span class="brand-symbol"><i class="ph ph-sparkle"></i></span><span>Lumen Pass</span></a><span class="public-route-status"><i class="ph ph-shield-check"></i> SECURE CONTENT</span></header><main class="public-route-main"><div class="public-route-intro"><span class="eyebrow">PUBLIC CONTENT</span><h1>付费内容</h1><p>完成支付后，即可在当前页面查看创作者授权的完整内容。</p></div><section class="public-route-card" aria-label="付费内容"><div class="public-preview public-route-preview" id="public-route-preview"></div></section><p class="public-route-footnote"><i class="ph ph-lock-key"></i> 本页面由 Lumen Pass 提供安全访问，授权仅对当前内容生效。</p></main></div><div class="toast" id="toast" role="status" aria-live="polite"></div>';
   renderPreviewCard($("#public-route-preview"), visitorState, true);
 }
 
 function renderVisitorPage() {
+  if (publicContentUnavailable) return renderPublicUnavailablePage();
   if (visitorState === "paid" && state.authExpiresAt && Date.now() >= state.authExpiresAt) visitorState = "expired";
   if (PUBLIC_CONTENT_ID) return renderPublicRoutePage();
   renderPreviewCard($("#visitor-page"), visitorState, true);
@@ -1265,7 +1286,8 @@ if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
 }
 
 if (PUBLIC_CONTENT_ID) {
-  renderPublicRoutePage();
+  if (window.location.protocol === "file:") renderPublicRoutePage();
+  else renderPublicLoadingPage();
   void hydratePublicContent();
   } else {
     const currentContent = findContentById(getPublicLinkId(state.link));
