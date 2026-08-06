@@ -26,7 +26,7 @@ const seedState = {
   session: { loggedIn: false, email: "" },
   profile: { displayName: "夜航者", email: "hello@lumenpass.com", bio: "记录光线、城市与被认真对待的内容。" },
   security: { callbackSignature: true, sensitiveCopy: true, scanUploads: true },
-  analytics: { revenue: 0, paidOrders: 0, orderCount: 0, averageOrder: 0, contentCount: 0, previewVisits: 0 },
+  analytics: { revenue: 0, paidOrders: 0, orderCount: 0, averageOrder: 0, contentCount: 0, previewVisits: 0, topContents: [], flow: { previewVisits: 0, paymentStarts: 0, unlocks: 0 } },
   payouts: [
     { date: "2026 年 08 月 01 日", amount: "1,860.00", status: "已到账", method: "微信支付" },
     { date: "2026 年 07 月 18 日", amount: "2,140.60", status: "已到账", method: "微信支付" },
@@ -62,7 +62,7 @@ if (CREATOR_MANAGEMENT_ONLINE && !creatorToken) {
   state.contents = [];
   state.orders = [];
   state.payouts = [];
-  state.analytics = { ...seedState.analytics };
+  state.analytics = structuredClone(seedState.analytics);
   state.link = "";
   state.session = { loggedIn: false, email: "" };
 }
@@ -223,7 +223,7 @@ async function restoreCreatorSession() {
     state.contents = [];
     state.orders = [];
     state.payouts = [];
-    state.analytics = { ...seedState.analytics };
+    state.analytics = structuredClone(seedState.analytics);
     state.link = "";
     saveState();
     renderSession();
@@ -571,6 +571,20 @@ function renderAnalyticsPeriod() {
   $("#analytics-paid-orders")?.replaceChildren(document.createTextNode(`${analytics.paidOrders || 0} 笔已支付`));
   $("#analytics-preview-visits")?.replaceChildren(document.createTextNode(String(analytics.previewVisits || 0)));
   $("#analytics-average-order")?.replaceChildren(document.createTextNode(`¥ ${formatMoney(analytics.averageOrder)}`));
+  renderAnalyticsInsights();
+}
+
+function renderAnalyticsInsights() {
+  const analytics = state.analytics || seedState.analytics;
+  const topTarget = $("#analytics-top-content");
+  const topContents = Array.isArray(analytics.topContents) ? analytics.topContents.filter((item) => Number(item.paidOrders || 0) > 0).slice(0, 2) : [];
+  if (topTarget) {
+    topTarget.innerHTML = topContents.length ? topContents.map((item) => `<div class="insight-item"><span class="insight-symbol"><i class="ph ${item.mode === "sensitive" ? "ph-key" : item.mode === "dual" ? "ph-images" : item.mode === "image" ? "ph-image" : "ph-link"}"></i></span><div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(modeLabels[item.mode]?.label || item.mode)} · ${escapeHtml(String(item.paidOrders))} 次支付</span></div><b>¥ ${escapeHtml(formatMoney(item.revenue))}</b></div>`).join("") : '<div class="insight-empty"><i class="ph ph-chart-line-up"></i><span>暂无已支付内容</span><small>完成首笔支付后，这里会显示表现最好的内容。</small></div>';
+  }
+  const flow = analytics.flow || {};
+  $("#analytics-flow-preview")?.replaceChildren(document.createTextNode(String(flow.previewVisits || analytics.previewVisits || 0)));
+  $("#analytics-flow-payment")?.replaceChildren(document.createTextNode(String(flow.paymentStarts || analytics.orderCount || 0)));
+  $("#analytics-flow-unlock")?.replaceChildren(document.createTextNode(String(flow.unlocks || analytics.paidOrders || 0)));
 }
 
 function renderPayoutHistory() {

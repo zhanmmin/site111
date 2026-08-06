@@ -49,6 +49,7 @@ function mapUser(row) {
 function mapOrder(row) {
   return {
     id: row.order_no,
+    contentId: row.content_id,
     buyer: row.buyer_name,
     content: row.content_title,
     creator: row.creator,
@@ -303,7 +304,7 @@ app.get("/api/creator/contents", asyncRoute(async (req, res) => {
 }));
 
 app.get("/api/creator/orders", asyncRoute(async (req, res) => {
-  const [rows] = await getPool().query("SELECT o.order_no, o.buyer_name, o.amount, o.status, o.created_at, c.title AS content_title, c.mode FROM orders o JOIN contents c ON c.id = o.content_id WHERE o.creator_id = ? ORDER BY o.created_at DESC LIMIT 100", [Number(req.creator.sub)]);
+  const [rows] = await getPool().query("SELECT o.order_no, o.content_id, o.buyer_name, o.amount, o.status, o.created_at, c.title AS content_title, c.mode FROM orders o JOIN contents c ON c.id = o.content_id WHERE o.creator_id = ? ORDER BY o.created_at DESC LIMIT 100", [Number(req.creator.sub)]);
   res.json({ items: rows.map(mapCreatorOrder) });
 }));
 
@@ -362,7 +363,8 @@ app.get("/api/creator/analytics", asyncRoute(async (req, res) => {
   const creatorId = Number(req.creator.sub);
   const [[summary]] = await getPool().query("SELECT COALESCE(SUM(CASE WHEN status IN ('paid', 'settled') THEN amount ELSE 0 END), 0) AS revenue, COUNT(CASE WHEN status IN ('paid', 'settled') THEN 1 END) AS paid_orders, COUNT(*) AS order_count, COALESCE(AVG(CASE WHEN status IN ('paid', 'settled') THEN amount END), 0) AS average_order FROM orders WHERE creator_id = ?", [creatorId]);
   const [[contents]] = await getPool().query("SELECT COUNT(*) AS content_count FROM contents WHERE creator_id = ?", [creatorId]);
-  res.json({ revenue: Number(summary.revenue), paidOrders: Number(summary.paid_orders), orderCount: Number(summary.order_count), averageOrder: Number(summary.average_order), contentCount: Number(contents.content_count), previewVisits: 0 });
+  const [topContents] = await getPool().query("SELECT c.id, c.title, c.mode, c.price, COUNT(CASE WHEN o.status IN ('paid', 'settled') THEN 1 END) AS paid_orders, COALESCE(SUM(CASE WHEN o.status IN ('paid', 'settled') THEN o.amount ELSE 0 END), 0) AS revenue FROM contents c LEFT JOIN orders o ON o.content_id = c.id WHERE c.creator_id = ? GROUP BY c.id ORDER BY paid_orders DESC, revenue DESC, c.updated_at DESC LIMIT 5", [creatorId]);
+  res.json({ revenue: Number(summary.revenue), paidOrders: Number(summary.paid_orders), orderCount: Number(summary.order_count), averageOrder: Number(summary.average_order), contentCount: Number(contents.content_count), previewVisits: 0, topContents: topContents.map((item) => ({ id: item.id, title: item.title, mode: item.mode, price: Number(item.price), paidOrders: Number(item.paid_orders), revenue: Number(item.revenue) })), flow: { previewVisits: 0, paymentStarts: Number(summary.order_count), unlocks: Number(summary.paid_orders) } });
 }));
 
 app.post("/api/creator/contents", asyncRoute(async (req, res) => {
