@@ -445,14 +445,13 @@ function renderMediaVisual(viewState, mediaAlt) {
 function imageDownloadItems() {
   const slug = String(state.title || "lumen-pass-content").trim().replace(/[^\w\u4e00-\u9fff-]+/g, "-").replace(/^-+|-+$/g, "") || "lumen-pass-content";
   if (state.mode === "dual") {
-    const fallback = assetUrl("assets/unlocked-preview.png");
     return [
-      { data: state.imageData || fallback, label: "下载主图", filename: `${slug}-01.jpg`, slot: "primary" },
-      { data: state.imageData2 || state.imageData || fallback, label: "下载第二张", filename: `${slug}-02.jpg`, slot: "secondary" },
+      ...(state.imageData ? [{ data: state.imageData, label: "下载主图", filename: `${slug}-01.jpg`, slot: "primary" }] : []),
+      ...(state.imageData2 ? [{ data: state.imageData2, label: "下载第二张", filename: `${slug}-02.jpg`, slot: "secondary" }] : []),
     ];
   }
   if (state.mode !== "image") return [];
-  return [{ data: state.imageData || assetUrl("assets/unlocked-preview.png"), label: "下载原图", filename: `${slug}.jpg`, slot: "primary" }];
+  return state.imageData ? [{ data: state.imageData, label: "下载原图", filename: `${slug}.jpg`, slot: "primary" }] : [];
 }
 
 function renderImageDownloadActions() {
@@ -997,6 +996,27 @@ function handleAction(action, element) {
   if (action === "download-image") {
     const item = imageDownloadItems().find((download) => download.slot === element.dataset.imageSlot);
     if (!item?.data) return showToast("当前内容没有可下载的图片");
+    if (PUBLIC_CONTENT_ID && publicAccessToken) {
+      void (async () => {
+        try {
+          const response = await fetch(`/api/public/access/${encodeURIComponent(publicAccessToken)}/download/${encodeURIComponent(item.slot)}`);
+          if (!response.ok) throw new Error("download-failed");
+          const blobUrl = URL.createObjectURL(await response.blob());
+          const downloadLink = document.createElement("a");
+          downloadLink.href = blobUrl;
+          downloadLink.download = item.filename;
+          downloadLink.rel = "noopener";
+          document.body.appendChild(downloadLink);
+          downloadLink.click();
+          downloadLink.remove();
+          window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+          showToast("图片下载已开始");
+        } catch (error) {
+          showToast("图片下载失败，请重新支付后重试");
+        }
+      })();
+      return;
+    }
     const downloadLink = document.createElement("a");
     downloadLink.href = item.data;
     downloadLink.download = item.filename;
