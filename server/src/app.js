@@ -57,6 +57,29 @@ function mapOrder(row) {
   };
 }
 
+function mapCreatorOrder(row) {
+  const mode = modeLabels[row.mode] || row.mode;
+  return {
+    id: row.order_no,
+    customer: row.buyer_name,
+    content: `${row.content_title} · ${mode}`,
+    amount: Number(row.amount),
+    time: toTime(row.created_at),
+    status: row.status,
+    initial: String(row.buyer_name || "访").trim().slice(0, 1) || "访",
+  };
+}
+
+function mapPayout(row) {
+  return {
+    id: row.id,
+    date: toTime(row.requested_at),
+    amount: Number(row.amount),
+    status: { processing: "处理中", paid: "已到账", failed: "失败" }[row.status] || row.status,
+    method: row.method || "微信支付",
+  };
+}
+
 const modeLabels = { image: "图片", dual: "双图", link: "网址 / 文字", sensitive: "密码文字" };
 const ruleLabels = { window: "支付后可查看", once: "仅查看一次", two_hours: "2 小时有效", "two-hours": "2 小时有效" };
 
@@ -263,10 +286,82 @@ app.get("/api/creator/me", asyncRoute(async (req, res) => {
   res.json({ id: rows[0].id, email: rows[0].email, displayName: rows[0].display_name, bio: rows[0].bio || "", status: rows[0].status });
 }));
 
+app.patch("/api/creator/profile", asyncRoute(async (req, res) => {
+  const displayName = String(req.body?.displayName || "").trim().slice(0, 100);
+  const bio = String(req.body?.bio || "").trim().slice(0, 2000);
+  if (!displayName) return res.status(400).json({ error: "INVALID_INPUT", message: "显示名称不能为空" });
+  const [result] = await getPool().query("UPDATE creator_users SET display_name = ?, bio = ? WHERE id = ?", [displayName, bio || null, Number(req.creator.sub)]);
+  if (!result.affectedRows) return res.status(404).json({ error: "NOT_FOUND", message: "创作者不存在" });
+  res.json({ ok: true, displayName, bio });
+}));
+
 app.get("/api/creator/contents", asyncRoute(async (req, res) => {
   const [rows] = await getPool().query("SELECT * FROM contents WHERE creator_id = ? ORDER BY submitted_at DESC", [Number(req.creator.sub)]);
   const items = await Promise.all(rows.map(async (row) => mapCreatorContent(row, await getContentAssets(row.id), true)));
   res.json({ items });
+}));
+
+app.get("/api/creator/orders", asyncRoute(async (req, res) => {
+  const [rows] = await getPool().query("SELECT o.order_no, o.buyer_name, o.amount, o.status, o.created_at, c.title AS content_title, c.mode FROM orders o JOIN contents c ON c.id = o.content_id WHERE o.creator_id = ? ORDER BY o.created_at DESC LIMIT 100", [Number(req.creator.sub)]);
+  res.json({ items: rows.map(mapCreatorOrder) });
+}));
+
+app.get("/api/creator/payouts", asyncRoute(async (req, res) => {
+  const [rows] = await getPool().query("SELECT id, amount, status, method, requested_at FROM payouts WHERE creator_id = ? ORDER BY requested_at DESC LIMIT 100", [Number(req.creator.sub)]);
+  res.json({ items: rows.map(mapPayout) });
+}));
+
+app.post("/api/creator/payouts", asyncRoute(async (req, res) => {
+  const amount = Number(req.body?.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: "INVALID_INPUT", message: "提现金额需要大于 0 元" });
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.query("SELECT id FROM creator_users WHERE id = ? FOR UPDATE", [Number(req.creator.sub)]);
+    const [[income]] = await connection.query("SELECT COALESCE(SUM(amount), 0) AS value FROM orders WHERE creator_id = ? AND status IN ('paid', 'settled')", [Number(req.creator.sub)]);
+    const [[withdrawn]] = await connection.query("SELECT COALESCE(SUM(amount), 0) AS value FROM payouts WHERE creator_id = ? AND status IN ('processing', 'paid')", [Number(req.creator.sub)]);
+    const available = Number(income.value) - Number(withdrawn.value);
+    if (amount > available + 0.0001) {
+      await connection.rollback();
+      return res.status(409).json({ error: "INSUFFICIENT_BALANCE", message: "可提现余额不足" });
+    }
+    const [result] = await connection.query("INSERT INTO payouts (creator_id, amount, status, method) VALUES (?, ?, 'processing', '微信支付')", [Number(req.creator.sub), amount.toFixed(2)]);
+    await connection.commit();
+    res.status(201).json({ ok: true, id: result.insertId, amount: Number(amount.toFixed(2)), status: "processing" });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}));
+
+app.get("/api/creator/settings", asyncRoute(async (req, res) => {
+  const [rows] = await getPool().query("SELECT security_json, payout_provider, payout_account_masked FROM creator_settings WHERE creator_id = ? LIMIT 1", [Number(req.creator.sub)]);
+  const row = rows[0];
+  let security = { callbackSignature: true, sensitiveCopy: true, scanUploads: true };
+  if (row?.security_json) {
+    try { security = { ...security, ...(typeof row.security_json === "string" ? JSON.parse(row.security_json) : row.security_json) }; } catch (error) { /* fall back to safe defaults */ }
+  }
+  res.json({ security, payoutProvider: row?.payout_provider || "wechat", payoutAccountMasked: row?.payout_account_masked || "" });
+}));
+
+app.patch("/api/creator/settings", asyncRoute(async (req, res) => {
+  const security = req.body?.security && typeof req.body.security === "object" ? req.body.security : {};
+  const normalized = {
+    callbackSignature: Boolean(security.callbackSignature),
+    sensitiveCopy: Boolean(security.sensitiveCopy),
+    scanUploads: Boolean(security.scanUploads),
+  };
+  await getPool().query("INSERT INTO creator_settings (creator_id, security_json) VALUES (?, ?) ON DUPLICATE KEY UPDATE security_json = VALUES(security_json)", [Number(req.creator.sub), JSON.stringify(normalized)]);
+  res.json({ ok: true, security: normalized });
+}));
+
+app.get("/api/creator/analytics", asyncRoute(async (req, res) => {
+  const creatorId = Number(req.creator.sub);
+  const [[summary]] = await getPool().query("SELECT COALESCE(SUM(CASE WHEN status IN ('paid', 'settled') THEN amount ELSE 0 END), 0) AS revenue, COUNT(CASE WHEN status IN ('paid', 'settled') THEN 1 END) AS paid_orders, COUNT(*) AS order_count, COALESCE(AVG(CASE WHEN status IN ('paid', 'settled') THEN amount END), 0) AS average_order FROM orders WHERE creator_id = ?", [creatorId]);
+  const [[contents]] = await getPool().query("SELECT COUNT(*) AS content_count FROM contents WHERE creator_id = ?", [creatorId]);
+  res.json({ revenue: Number(summary.revenue), paidOrders: Number(summary.paid_orders), orderCount: Number(summary.order_count), averageOrder: Number(summary.average_order), contentCount: Number(contents.content_count), previewVisits: 0 });
 }));
 
 app.post("/api/creator/contents", asyncRoute(async (req, res) => {

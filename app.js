@@ -26,6 +26,7 @@ const seedState = {
   session: { loggedIn: false, email: "" },
   profile: { displayName: "夜航者", email: "hello@lumenpass.com", bio: "记录光线、城市与被认真对待的内容。" },
   security: { callbackSignature: true, sensitiveCopy: true, scanUploads: true },
+  analytics: { revenue: 0, paidOrders: 0, orderCount: 0, averageOrder: 0, contentCount: 0, previewVisits: 0 },
   payouts: [
     { date: "2026 年 08 月 01 日", amount: "1,860.00", status: "已到账", method: "微信支付" },
     { date: "2026 年 07 月 18 日", amount: "2,140.60", status: "已到账", method: "微信支付" },
@@ -47,12 +48,21 @@ const modeLabels = {
 };
 
 const PUBLIC_CONTENT_ID = getPublicContentId();
+const CREATOR_MANAGEMENT_ONLINE = window.location.protocol !== "file:" && !PUBLIC_CONTENT_ID;
 let creatorToken = readCreatorToken();
 let creatorApiMode = false;
 let publicApiMode = false;
 let publicAccessToken = "";
 let state = loadState();
 if (!creatorToken && !PUBLIC_CONTENT_ID && state.session?.loggedIn) {
+  state.session = { loggedIn: false, email: "" };
+}
+if (CREATOR_MANAGEMENT_ONLINE && !creatorToken) {
+  state.contents = [];
+  state.orders = [];
+  state.payouts = [];
+  state.analytics = { ...seedState.analytics };
+  state.link = "";
   state.session = { loggedIn: false, email: "" };
 }
 if (PUBLIC_CONTENT_ID) {
@@ -120,6 +130,7 @@ function loadState() {
 }
 
 function saveState() {
+  if (CREATOR_MANAGEMENT_ONLINE && !creatorApiMode) return;
   try {
     const snapshot = creatorApiMode ? {
       screen: state.screen,
@@ -171,11 +182,22 @@ function applyApiContent(content) {
 }
 
 async function hydrateCreatorFromApi() {
-  const [profile, contents] = await Promise.all([appApi("/creator/me"), appApi("/creator/contents")]);
+  const [profile, contents, orders, payouts, settings, analytics] = await Promise.all([
+    appApi("/creator/me"),
+    appApi("/creator/contents"),
+    appApi("/creator/orders"),
+    appApi("/creator/payouts"),
+    appApi("/creator/settings"),
+    appApi("/creator/analytics"),
+  ]);
   creatorApiMode = true;
   state.profile = { displayName: profile.displayName, email: profile.email, bio: profile.bio || "" };
   state.session = { loggedIn: true, email: profile.email };
   state.contents = contents.items.map(applyApiContent);
+  state.orders = Array.isArray(orders.items) ? orders.items : [];
+  state.payouts = Array.isArray(payouts.items) ? payouts.items : [];
+  state.analytics = { ...seedState.analytics, ...(analytics || {}) };
+  state.security = { ...seedState.security, ...(settings.security || {}) };
   const currentId = getPublicLinkId(state.link);
   const current = state.contents.find((content) => content.id === currentId) || state.contents[0];
   if (current) applyContentRecord(current);
@@ -197,6 +219,11 @@ async function restoreCreatorSession() {
     persistCreatorToken();
     creatorApiMode = false;
     state.session = { loggedIn: false, email: "" };
+    state.contents = [];
+    state.orders = [];
+    state.payouts = [];
+    state.analytics = { ...seedState.analytics };
+    state.link = "";
     saveState();
     renderSession();
   }
@@ -241,6 +268,13 @@ function formatDateTime(value) {
     return result;
   }, {});
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+}
+
+function displayTime(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "时间未记录";
+  if (/[刚昨今天小时分钟前]/.test(text) || text.includes("年")) return text;
+  return formatDateTime(value);
 }
 
 function safeHttpUrl(value) {
@@ -488,8 +522,18 @@ function renderVisitorPage() {
 function renderOrders() {
   const filter = state.orderFilter || "all";
   const filteredOrders = filter === "all" ? state.orders : state.orders.filter((order) => order.status === filter);
-  $("#order-total").textContent = String(120 + state.orders.length + 3);
-  $("#order-table").innerHTML = filteredOrders.length ? filteredOrders.map((order) => `<div class="order-row" role="listitem" aria-label="订单 ${escapeHtml(order.id)}"><div class="order-customer"><span class="order-avatar">${escapeHtml(order.initial)}</span><div><strong>${escapeHtml(order.customer)}</strong><span>${escapeHtml(order.id)}</span></div></div><span>${escapeHtml(order.content)}</span><b>¥ ${escapeHtml(order.amount)}</b><span>${escapeHtml(order.time)}</span><span class="status-badge ${order.status === "paid" ? "success" : "pending"}"><i class="ph ${order.status === "paid" ? "ph-check-circle" : "ph-hourglass-medium"}"></i>${order.status === "paid" ? "已支付" : "处理中"}</span></div>`).join("") : `<div class="table-empty"><i class="ph ph-receipt"></i><strong>没有${filter === "paid" ? "已支付" : "处理中"}订单</strong><span>切换筛选条件后可查看其他交易。</span></div>`;
+  const paidOrders = state.orders.filter((order) => ["paid", "settled"].includes(order.status));
+  const paidTotal = paidOrders.reduce((total, order) => total + Number(order.amount || 0), 0);
+  const pendingTotal = state.orders.filter((order) => order.status === "pending").reduce((total, order) => total + Number(order.amount || 0), 0);
+  $("#order-total").textContent = String(state.orders.length);
+  $("#order-settled-total")?.replaceChildren(document.createTextNode(`¥ ${formatMoney(paidTotal)}`));
+  $("#order-pending-total")?.replaceChildren(document.createTextNode(`¥ ${formatMoney(pendingTotal)}`));
+  $("#order-table").innerHTML = filteredOrders.length ? filteredOrders.map((order) => {
+    const settled = order.status === "settled";
+    const paid = order.status === "paid" || settled;
+    const statusLabel = settled ? "已结算" : paid ? "已支付" : order.status === "pending" ? "待支付" : order.status === "refunded" ? "已退款" : "失败";
+    return `<div class="order-row" role="listitem" aria-label="订单 ${escapeHtml(order.id)}"><div class="order-customer"><span class="order-avatar">${escapeHtml(order.initial || "访")}</span><div><strong>${escapeHtml(order.customer || "访客")}</strong><span>${escapeHtml(order.id)}</span></div></div><span>${escapeHtml(order.content || "付费内容")}</span><b>¥ ${escapeHtml(formatMoney(order.amount))}</b><span>${escapeHtml(displayTime(order.time))}</span><span class="status-badge ${paid ? "success" : "pending"}"><i class="ph ${paid ? "ph-check-circle" : "ph-hourglass-medium"}"></i>${statusLabel}</span></div>`;
+  }).join("") : `<div class="table-empty"><i class="ph ph-receipt"></i><strong>没有匹配的订单</strong><span>切换筛选条件后可查看其他交易。</span></div>`;
   $$("[data-order-filter]").forEach((button) => { const active = button.dataset.orderFilter === filter; button.classList.toggle("is-active", active); button.setAttribute("aria-pressed", String(active)); });
 }
 
@@ -502,13 +546,21 @@ function renderAnalyticsPeriod() {
   if (target) target.textContent = getAnalyticsPeriodLabel();
   const chart = $("#analytics-chart");
   if (chart) chart.setAttribute("aria-label", getAnalyticsPeriodLabel() + "收入趋势");
+  const analytics = state.analytics || seedState.analytics;
+  $("#analytics-total-revenue")?.replaceChildren(document.createTextNode(`¥ ${formatMoney(analytics.revenue)}`));
+  $("#analytics-paid-orders")?.replaceChildren(document.createTextNode(`${analytics.paidOrders || 0} 笔已支付`));
+  $("#analytics-preview-visits")?.replaceChildren(document.createTextNode(String(analytics.previewVisits || 0)));
+  $("#analytics-average-order")?.replaceChildren(document.createTextNode(`¥ ${formatMoney(analytics.averageOrder)}`));
 }
 
 function renderPayoutHistory() {
   const target = $("#payout-history");
   if (!target) return;
   const payouts = Array.isArray(state.payouts) ? state.payouts : [];
-  target.innerHTML = payouts.length ? payouts.map((payout) => `<div class="payout-history-row"><div><strong>${escapeHtml(payout.date)}</strong><span>${escapeHtml(payout.method)}</span></div><b>¥ ${escapeHtml(formatMoney(payout.amount))}</b><span class="status-badge ${payout.status === "已到账" ? "success" : "pending"}"><i class="ph ${payout.status === "已到账" ? "ph-check-circle" : "ph-hourglass-medium"}"></i> ${escapeHtml(payout.status)}</span></div>`).join("") : '<div class="table-empty"><i class="ph ph-wallet"></i><strong>还没有结算记录</strong><span>完成首次提现后，记录会显示在这里。</span></div>';
+  const paidOut = payouts.filter((payout) => ["已到账", "处理中"].includes(payout.status)).reduce((total, payout) => total + Number(payout.amount || 0), 0);
+  const paidIn = state.orders.filter((order) => ["paid", "settled"].includes(order.status)).reduce((total, order) => total + Number(order.amount || 0), 0);
+  $("#payout-available")?.replaceChildren(document.createTextNode(`¥ ${formatMoney(Math.max(0, paidIn - paidOut))}`));
+  target.innerHTML = payouts.length ? payouts.map((payout) => `<div class="payout-history-row"><div><strong>${escapeHtml(displayTime(payout.date))}</strong><span>${escapeHtml(payout.method || "微信支付")}</span></div><b>¥ ${escapeHtml(formatMoney(payout.amount))}</b><span class="status-badge ${payout.status === "已到账" ? "success" : "pending"}"><i class="ph ${payout.status === "已到账" ? "ph-check-circle" : "ph-hourglass-medium"}"></i> ${escapeHtml(payout.status)}</span></div>`).join("") : '<div class="table-empty"><i class="ph ph-wallet"></i><strong>还没有结算记录</strong><span>完成首次提现后，记录会显示在这里。</span></div>';
 }
 
 function renderSettings() {
@@ -538,7 +590,30 @@ function renderSession() {
   }
 }
 
+async function persistCreatorSettings() {
+  if (!creatorApiMode) {
+    saveState();
+    showToast("请先登录创作者后台");
+    return;
+  }
+  try {
+    await Promise.all([
+      appApi("/creator/profile", { method: "PATCH", body: JSON.stringify({ displayName: state.profile.displayName, bio: state.profile.bio }) }),
+      appApi("/creator/settings", { method: "PATCH", body: JSON.stringify({ security: state.security }) }),
+    ]);
+    await hydrateCreatorFromApi();
+    renderSettings();
+    showToast("工作区设置已保存");
+  } catch (error) {
+    showToast("设置保存失败，请稍后重试");
+  }
+}
+
 function switchScreen(screen) {
+  if (CREATOR_MANAGEMENT_ONLINE && !creatorApiMode && ["orders", "analytics", "payout", "settings"].includes(screen)) {
+    openModal("login-modal");
+    return;
+  }
   state.screen = screen;
   saveState();
   $$("[data-screen-view]").forEach((view) => view.classList.toggle("is-active", view.dataset.screenView === screen));
@@ -597,6 +672,7 @@ async function handleLoginSubmit(form) {
     creatorApiMode = false;
     persistCreatorToken();
     if (error.status === 401) return setLoginFormError("创作者邮箱或密码不正确");
+    if (CREATOR_MANAGEMENT_ONLINE) return setLoginFormError("登录服务暂时不可用，请稍后重试");
   }
   state.session = { loggedIn: true, email };
   saveState();
@@ -886,14 +962,25 @@ function handleAction(action, element) {
     persistCreatorToken();
     creatorApiMode = false;
     state.session = { loggedIn: false, email: "" };
+    state.contents = [];
+    state.orders = [];
+    state.payouts = [];
+    state.analytics = { ...seedState.analytics };
+    state.link = "";
     saveState();
     renderSession();
+    renderContentLibrary();
+    renderOrders();
+    renderPayoutHistory();
     switchScreen("content");
     showToast("已退出登录");
     return;
   }
   if (action === "open-visitor") return openModal("visitor-modal");
-  if (action === "open-create") return openCreateForm();
+  if (action === "open-create") {
+    if (CREATOR_MANAGEMENT_ONLINE && !creatorApiMode) return openModal("login-modal");
+    return openCreateForm();
+  }
   if (action === "close-modal") return closeModals();
   if (action === "clear-image") {
     const slot = element.dataset.imageSlot;
@@ -952,7 +1039,7 @@ function handleAction(action, element) {
     window.open(publicLinkFor(content.id), "_blank", "noopener,noreferrer");
     return;
   }
-  if (action === "publish") { state.published = true; syncCurrentContentRecord({ markPublished: true }); saveState(); renderContentLibrary(); showToast("已发布更新，公开链接保持不变"); return; }
+  if (action === "publish") { if (CREATOR_MANAGEMENT_ONLINE && !creatorApiMode) return openModal("login-modal"); state.published = true; syncCurrentContentRecord({ markPublished: true }); saveState(); renderContentLibrary(); showToast("已发布更新，公开链接保持不变"); return; }
   if (action === "cycle-analytics-period") {
     const periods = ["7", "30", "90"];
     const nextPeriod = periods[(periods.indexOf(state.analyticsPeriod || "30") + 1) % periods.length];
@@ -964,7 +1051,24 @@ function handleAction(action, element) {
   }
   if (action === "open-content") { const url = safeHttpUrl(state.linkContent); if (url) window.open(url, "_blank", "noopener,noreferrer"); else showToast("链接格式不安全，已阻止打开"); return; }
   if (["open-account", "show-security", "open-cover", "edit-note", "open-advanced", "report-content", "share-wechat", "share-moments", "share-weibo"].includes(action)) { showToast({ "open-account": "当前工作区：夜航者", "show-security": "安全策略已启用：加密存储、签名回调、授权过期", "open-cover": "封面图片已接入安全存储", "edit-note": "创作者寄语已在预览中同步", "open-advanced": "高级选项将在正式接入支付后开放", "report-content": "感谢反馈，我们会在 24 小时内处理", "share-wechat": "微信分享卡片已准备好", "share-moments": "朋友圈分享卡片已准备好", "share-weibo": "微博分享链接已准备好" }[action]); return; }
-  if (action === "withdraw") { state.payouts.unshift({ date: "刚刚", amount: "2,408.60", status: "处理中", method: "微信支付" }); saveState(); renderPayoutHistory(); showToast("提现申请已创建，正在等待结算"); return; }
+  if (action === "withdraw") {
+    if (!creatorApiMode) return openModal("login-modal");
+    const paidIn = state.orders.filter((order) => ["paid", "settled"].includes(order.status)).reduce((total, order) => total + Number(order.amount || 0), 0);
+    const paidOut = state.payouts.filter((payout) => ["已到账", "处理中"].includes(payout.status)).reduce((total, payout) => total + Number(payout.amount || 0), 0);
+    const amount = Math.max(0, paidIn - paidOut);
+    if (amount <= 0) return showToast("当前没有可提现余额");
+    void (async () => {
+      try {
+        await appApi("/creator/payouts", { method: "POST", body: JSON.stringify({ amount: Number(amount.toFixed(2)) }) });
+        await hydrateCreatorFromApi();
+        renderPayoutHistory();
+        showToast("提现申请已创建，正在等待结算");
+      } catch (error) {
+        showToast(error.status === 409 ? "可提现余额不足" : "提现申请失败，请稍后重试");
+      }
+    })();
+    return;
+  }
   if (action === "edit-provider") { showToast("Mock Payment Provider 已连接，支持替换为真实支付服务"); return; }
   if (action === "export-orders") { copyText("Lumen Pass 订单导出：" + state.orders.length + " 笔，已支付 " + state.orders.filter((order) => order.status === "paid").length + " 笔，处理中 " + state.orders.filter((order) => order.status === "pending").length + " 笔", "订单摘要已复制"); return; }
   if (action === "export-payouts") { const payoutTotal = state.payouts.reduce((total, payout) => total + (Number(String(payout.amount).replace(/,/g, "")) || 0), 0); copyText("Lumen Pass 结算记录：" + state.payouts.length + " 笔，合计 ¥" + formatMoney(payoutTotal), "结算摘要已复制"); return; }
@@ -974,17 +1078,15 @@ function handleAction(action, element) {
       email: $("#profile-email").value.trim(),
       bio: $("#profile-bio").value.trim(),
     };
-    saveState();
-    showToast("工作区设置已保存");
+    void persistCreatorSettings();
     return;
   }
   if (action === "toggle-security") {
     const key = element.dataset.security;
     if (key) {
       state.security[key] = !state.security[key];
-      saveState();
       renderSettings();
-      showToast("安全策略已更新");
+      void persistCreatorSettings();
     }
     return;
   }
@@ -992,6 +1094,7 @@ function handleAction(action, element) {
 
 async function handleCreateSubmit(form) {
   const data = new FormData(form);
+  if (CREATOR_MANAGEMENT_ONLINE && !creatorApiMode) return setCreateFormError("请先登录创作者后台");
   const title = String(data.get("title") || "").trim();
   const rawPrice = String(data.get("price") || "").trim();
   const numericPrice = Number(rawPrice);
@@ -1093,9 +1196,9 @@ document.addEventListener("click", (event) => {
     return;
   }
   const modeButton = event.target.closest("[data-mode]");
-  if (modeButton) { state.mode = modeButton.dataset.mode; state.title = modeLabels[state.mode].title; saveState(); renderPublicPreview(); return; }
+  if (modeButton) { if (CREATOR_MANAGEMENT_ONLINE && !creatorApiMode) return openModal("login-modal"); state.mode = modeButton.dataset.mode; state.title = modeLabels[state.mode].title; saveState(); renderPublicPreview(); return; }
   const ruleButton = event.target.closest("[data-rule]");
-  if (ruleButton) { state.rule = ruleButton.dataset.rule; syncCurrentContentRecord(); saveState(); renderPublicPreview(); renderContentLibrary(); showToast(`访问规则已切换为：${getRuleLabel()}`); return; }
+  if (ruleButton) { if (CREATOR_MANAGEMENT_ONLINE && !creatorApiMode) return openModal("login-modal"); state.rule = ruleButton.dataset.rule; syncCurrentContentRecord(); saveState(); renderPublicPreview(); renderContentLibrary(); showToast(`访问规则已切换为：${getRuleLabel()}`); return; }
   const createModeButton = event.target.closest("[data-create-mode]");
   if (createModeButton) { createMode = createModeButton.dataset.createMode; $$("[data-create-mode]").forEach((button) => button.classList.toggle("is-selected", button === createModeButton)); updateCreateFields(); return; }
   const actionButton = event.target.closest("[data-action]");
@@ -1109,6 +1212,7 @@ document.addEventListener("change", (event) => {
     return;
   }
   if (event.target.matches("#price-input")) {
+    if (CREATOR_MANAGEMENT_ONLINE && !creatorApiMode) { event.target.value = formatMoney(state.price); return openModal("login-modal"); }
     const nextPrice = Number(event.target.value);
     if (!Number.isFinite(nextPrice) || nextPrice <= 0) {
       event.target.value = formatMoney(state.price);
@@ -1143,10 +1247,11 @@ if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
 if (PUBLIC_CONTENT_ID) {
   renderPublicRoutePage();
   void hydratePublicContent();
-} else {
-  const currentContent = findContentById(getPublicLinkId(state.link));
-  if (currentContent) applyContentRecord(currentContent);
-  else syncCurrentContentRecord();
+  } else {
+    const currentContent = findContentById(getPublicLinkId(state.link));
+    if (currentContent) applyContentRecord(currentContent);
+    else if (!CREATOR_MANAGEMENT_ONLINE || creatorToken) syncCurrentContentRecord();
+    else state.link = "";
   saveState();
   renderPublicPreview();
   renderContentLibrary();

@@ -1,9 +1,9 @@
-const CACHE_NAME = "lumen-pass-shell-v26";
+const CACHE_NAME = "lumen-pass-shell-v27";
 const SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=20260805admin-console1",
-  "./app.js?v=20260805bugfix1",
+  "./app.js?v=20260806bugfix2",
   "./admin.js?v=20260805admin-console1",
   "./manifest.webmanifest",
   "./assets/locked-preview.png",
