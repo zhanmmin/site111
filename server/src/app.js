@@ -40,6 +40,7 @@ function mapUser(row) {
     email: row.email,
     contents: Number(row.content_count || 0),
     revenue: Number(row.revenue || 0),
+    verified: Boolean(row.verified_at),
     lastActive: toTime(row.last_active_at),
     status: row.status === "suspended" ? "限制中" : row.status === "pending" ? "待认证" : "正常",
   };
@@ -420,8 +421,10 @@ app.get("/api/admin/overview", asyncRoute(async (req, res) => {
   const [[creators]] = await pool.query("SELECT COUNT(*) AS value FROM creator_users WHERE status = 'active'");
   const [[pendingContents]] = await pool.query("SELECT COUNT(*) AS value FROM contents WHERE status = 'pending'");
   const [[openReports]] = await pool.query("SELECT COUNT(*) AS value FROM reports WHERE status IN ('open', 'processing')");
+  const [[approvedToday]] = await pool.query("SELECT COUNT(*) AS value FROM contents WHERE status = 'approved' AND submitted_at >= UTC_DATE()");
+  const [[reviewRisk]] = await pool.query("SELECT COUNT(*) AS value FROM contents WHERE risk_level IN ('review', 'high') AND status = 'pending'");
   const [activity] = await pool.query("SELECT action, resource_type, resource_id, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 8");
-  res.json({ gmv: Number(gmv.value), orderCount: Number(gmv.order_count), activeCreators: Number(creators.value), pendingContents: Number(pendingContents.value), openReports: Number(openReports.value), activity: activity.map((item) => ({ ...item, created_at: toTime(item.created_at) })) });
+  res.json({ gmv: Number(gmv.value), orderCount: Number(gmv.order_count), activeCreators: Number(creators.value), pendingContents: Number(pendingContents.value), openReports: Number(openReports.value), approvedToday: Number(approvedToday.value), reviewRisk: Number(reviewRisk.value), activity: activity.map((item) => ({ ...item, created_at: toTime(item.created_at) })) });
 }));
 
 app.get("/api/admin/contents", asyncRoute(async (req, res) => {
@@ -448,7 +451,7 @@ app.get("/api/admin/users", asyncRoute(async (req, res) => {
   const values = [];
   let where = "";
   if (req.query.q) { where = "WHERE u.display_name LIKE ? OR u.email LIKE ?"; const query = `%${String(req.query.q)}%`; values.push(query, query); }
-  const [rows] = await getPool().query(`SELECT u.id, u.display_name, u.email, u.status, u.last_active_at, COUNT(DISTINCT c.id) AS content_count, COALESCE(SUM(CASE WHEN o.status IN ('paid', 'settled') THEN o.amount ELSE 0 END), 0) AS revenue FROM creator_users u LEFT JOIN contents c ON c.creator_id = u.id LEFT JOIN orders o ON o.creator_id = u.id ${where} GROUP BY u.id ORDER BY u.last_active_at DESC`, values);
+  const [rows] = await getPool().query(`SELECT u.id, u.display_name, u.email, u.status, u.verified_at, u.last_active_at, COUNT(DISTINCT c.id) AS content_count, COALESCE(SUM(CASE WHEN o.status IN ('paid', 'settled') THEN o.amount ELSE 0 END), 0) AS revenue FROM creator_users u LEFT JOIN contents c ON c.creator_id = u.id LEFT JOIN orders o ON o.creator_id = u.id ${where} GROUP BY u.id ORDER BY u.last_active_at DESC`, values);
   res.json({ items: rows.map(mapUser) });
 }));
 
@@ -462,8 +465,10 @@ app.patch("/api/admin/users/:id/status", asyncRoute(async (req, res) => {
 }));
 
 app.get("/api/admin/orders", asyncRoute(async (req, res) => {
-  const [rows] = await getPool().query("SELECT o.order_no, o.buyer_name, o.amount, o.status, o.created_at, c.title AS content_title, u.display_name AS creator FROM orders o JOIN contents c ON c.id = o.content_id JOIN creator_users u ON u.id = o.creator_id ORDER BY o.created_at DESC LIMIT 100");
-  res.json({ items: rows.map(mapOrder) });
+  const pool = getPool();
+  const [rows] = await pool.query("SELECT o.order_no, o.buyer_name, o.amount, o.status, o.created_at, c.title AS content_title, u.display_name AS creator FROM orders o JOIN contents c ON c.id = o.content_id JOIN creator_users u ON u.id = o.creator_id ORDER BY o.created_at DESC LIMIT 100");
+  const [[summary]] = await pool.query("SELECT COALESCE(SUM(CASE WHEN status IN ('paid', 'settled') AND created_at >= UTC_DATE() THEN amount ELSE 0 END), 0) AS today_gmv, COUNT(CASE WHEN status IN ('paid', 'settled') AND created_at >= UTC_DATE() THEN 1 END) AS today_paid_orders, COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) AS pending_amount, COUNT(CASE WHEN status = 'refunded' THEN 1 END) AS refunded_orders, COUNT(*) AS total_orders FROM orders");
+  res.json({ items: rows.map(mapOrder), summary: { todayGmv: Number(summary.today_gmv), todayPaidOrders: Number(summary.today_paid_orders), pendingAmount: Number(summary.pending_amount), refundRate: summary.total_orders ? Number(summary.refunded_orders) / Number(summary.total_orders) : 0, riskIntercepted: 0 } });
 }));
 
 app.get("/api/admin/settings", asyncRoute(async (req, res) => {
