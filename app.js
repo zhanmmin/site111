@@ -544,7 +544,7 @@ function renderOrders() {
   const filteredOrders = filter === "all" ? state.orders : state.orders.filter((order) => order.status === filter);
   const paidOrders = state.orders.filter((order) => ["paid", "settled"].includes(order.status));
   const paidTotal = paidOrders.reduce((total, order) => total + Number(order.amount || 0), 0);
-  const pendingTotal = state.orders.filter((order) => order.status === "pending").reduce((total, order) => total + Number(order.amount || 0), 0);
+  const pendingTotal = state.orders.filter((order) => order.status === "paid").reduce((total, order) => total + Number(order.amount || 0), 0);
   $("#order-total").textContent = String(state.orders.length);
   $("#order-settled-total")?.replaceChildren(document.createTextNode(`¥ ${formatMoney(paidTotal)}`));
   $("#order-pending-total")?.replaceChildren(document.createTextNode(`¥ ${formatMoney(pendingTotal)}`));
@@ -1031,7 +1031,7 @@ function handleAction(action, element) {
   if (action === "download-image") {
     const item = imageDownloadItems().find((download) => download.slot === element.dataset.imageSlot);
     if (!item?.data) return showToast("当前内容没有可下载的图片");
-    if (PUBLIC_CONTENT_ID && publicAccessToken) {
+    if (PUBLIC_CONTENT_ID && publicAccessToken && state.rule !== "once") {
       void (async () => {
         try {
           const response = await fetch(`/api/public/access/${encodeURIComponent(publicAccessToken)}/download/${encodeURIComponent(item.slot)}`);

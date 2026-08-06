@@ -171,11 +171,19 @@ async function createAccessGrant(connection, orderId, contentId, rule) {
   return { token, expiresAt: expires ? expires.toISOString() : null };
 }
 
-async function findAccessGrant(token) {
+async function findAccessGrant(token, { consumeOnce = false } = {}) {
   const tokenHash = crypto.createHash("sha256").update(String(token || "")).digest("hex");
-  const [rows] = await getPool().query("SELECT g.id AS grant_id, g.expires_at, o.order_no, c.* FROM access_grants g JOIN orders o ON o.id = g.order_id JOIN contents c ON c.id = g.content_id WHERE g.token_hash = ? AND o.status IN ('paid', 'settled') LIMIT 1", [tokenHash]);
+  const [rows] = await getPool().query("SELECT g.id AS grant_id, g.expires_at, g.consumed_at, o.order_no, c.* FROM access_grants g JOIN orders o ON o.id = g.order_id JOIN contents c ON c.id = g.content_id WHERE g.token_hash = ? AND o.status IN ('paid', 'settled') LIMIT 1", [tokenHash]);
   const grant = rows[0];
   if (!grant || (grant.expires_at && new Date(grant.expires_at).getTime() <= Date.now())) return null;
+  if (grant.access_rule === "once") {
+    if (grant.consumed_at) return null;
+    if (consumeOnce) {
+      const [result] = await getPool().query("UPDATE access_grants SET consumed_at = UTC_TIMESTAMP() WHERE id = ? AND consumed_at IS NULL", [grant.grant_id]);
+      if (!result.affectedRows) return null;
+      grant.consumed_at = new Date();
+    }
+  }
   return grant;
 }
 
@@ -242,7 +250,7 @@ app.post("/api/public/contents/:id/checkout", asyncRoute(async (req, res) => {
 }));
 
 app.get("/api/public/access/:token", asyncRoute(async (req, res) => {
-  const grant = await findAccessGrant(req.params.token);
+  const grant = await findAccessGrant(req.params.token, { consumeOnce: true });
   if (!grant) return res.status(410).json({ error: "ACCESS_EXPIRED", message: "访问授权不存在或已过期" });
   const assets = await getContentAssets(grant.id, true);
   res.json({
@@ -264,6 +272,7 @@ app.get("/api/public/access/:token", asyncRoute(async (req, res) => {
 app.get("/api/public/access/:token/download/:slot", asyncRoute(async (req, res) => {
   const grant = await findAccessGrant(req.params.token);
   if (!grant) return res.status(410).json({ error: "ACCESS_EXPIRED", message: "访问授权不存在或已过期" });
+  if (!["image", "dual"].includes(grant.mode)) return res.status(400).json({ error: "NOT_IMAGE_CONTENT", message: "当前内容不是可下载的图片" });
   if (!["primary", "secondary"].includes(req.params.slot)) return res.status(400).json({ error: "INVALID_SLOT", message: "图片位置无效" });
   const [rows] = await getPool().query("SELECT original_blob, mime_type FROM content_assets WHERE content_id = ? AND slot = ? LIMIT 1", [grant.id, req.params.slot]);
   const asset = rows[0];
@@ -401,8 +410,31 @@ app.post("/api/creator/contents", asyncRoute(async (req, res) => {
 
 app.patch("/api/creator/contents/:id", asyncRoute(async (req, res) => {
   const body = req.body || {};
-  const [owned] = await getPool().query("SELECT id FROM contents WHERE id = ? AND creator_id = ? LIMIT 1", [req.params.id, Number(req.creator.sub)]);
+  const [owned] = await getPool().query("SELECT id, mode, title, price, link_content, text_content, sensitive_text FROM contents WHERE id = ? AND creator_id = ? LIMIT 1", [req.params.id, Number(req.creator.sub)]);
   if (!owned[0]) return res.status(404).json({ error: "NOT_FOUND", message: "内容不存在" });
+  const current = owned[0];
+  const mode = String(body.mode ?? current.mode);
+  const title = body.title === undefined ? String(current.title || "").trim() : String(body.title || "").trim();
+  const price = body.price === undefined ? Number(current.price) : Number(body.price);
+  const linkContent = body.linkContent === undefined ? String(current.link_content || "").trim() : String(body.linkContent || "").trim();
+  const textContent = body.textContent === undefined ? String(current.text_content || "").trim() : String(body.textContent || "").trim();
+  const sensitiveText = body.sensitiveText === undefined ? String(current.sensitive_text || "").trim() : String(body.sensitiveText || "").trim();
+  if (!Object.keys(modeLabels).includes(mode) || !title || !Number.isFinite(price) || price <= 0) return res.status(400).json({ error: "INVALID_INPUT", message: "内容模式、标题和价格不能为空" });
+  if (body.rule !== undefined && !["window", "once", "two_hours", "two-hours"].includes(String(body.rule))) return res.status(400).json({ error: "INVALID_INPUT", message: "访问规则无效" });
+  if (mode === "link" && !(linkContent || textContent)) return res.status(400).json({ error: "INVALID_INPUT", message: "网址或文字内容不能为空" });
+  if (mode === "sensitive" && !sensitiveText) return res.status(400).json({ error: "INVALID_INPUT", message: "密码文字内容不能为空" });
+  if (mode === "image" || mode === "dual") {
+    const images = body.images || {};
+    const requiredSlots = mode === "dual" ? ["primary", "secondary"] : ["primary"];
+    if (body.images) {
+      const missing = requiredSlots.some((slot) => !parseDataUrl(images[slot]?.originalData || images[slot]?.data || ""));
+      if (missing) return res.status(400).json({ error: "INVALID_INPUT", message: mode === "dual" ? "双图内容必须包含两张原图" : "图片内容必须包含原图" });
+    } else {
+      const [assets] = await getPool().query("SELECT slot FROM content_assets WHERE content_id = ? AND original_blob IS NOT NULL", [req.params.id]);
+      const existingSlots = new Set(assets.map((asset) => asset.slot));
+      if (requiredSlots.some((slot) => !existingSlots.has(slot))) return res.status(400).json({ error: "INVALID_INPUT", message: mode === "dual" ? "双图内容必须包含两张原图" : "图片内容必须包含原图" });
+    }
+  }
   const fields = [];
   const values = [];
   for (const [column, value] of [["title", body.title], ["price", body.price], ["note", body.note], ["link_content", body.linkContent], ["text_content", body.textContent], ["sensitive_text", body.sensitiveText]]) {
@@ -410,7 +442,7 @@ app.patch("/api/creator/contents/:id", asyncRoute(async (req, res) => {
   }
   if (body.mode) { fields.push("mode = ?"); values.push(String(body.mode)); }
   if (body.rule) { fields.push("access_rule = ?"); values.push(toDbRule(String(body.rule))); }
-  if (fields.length) { fields.push("status = 'pending'"); values.push(req.params.id, Number(req.creator.sub)); await getPool().query(`UPDATE contents SET ${fields.join(", ")} WHERE id = ? AND creator_id = ?`, values); }
+  if (fields.length || body.images) { fields.push("status = 'pending'"); values.push(req.params.id, Number(req.creator.sub)); await getPool().query(`UPDATE contents SET ${fields.join(", ")} WHERE id = ? AND creator_id = ?`, values); }
   if (body.images) await saveAssets(getPool(), req.params.id, body.images);
   res.json({ ok: true, id: req.params.id, status: "pending" });
 }));
@@ -469,7 +501,7 @@ app.patch("/api/admin/users/:id/status", asyncRoute(async (req, res) => {
 app.get("/api/admin/orders", asyncRoute(async (req, res) => {
   const pool = getPool();
   const [rows] = await pool.query("SELECT o.order_no, o.buyer_name, o.amount, o.status, o.created_at, c.title AS content_title, u.display_name AS creator FROM orders o JOIN contents c ON c.id = o.content_id JOIN creator_users u ON u.id = o.creator_id ORDER BY o.created_at DESC LIMIT 100");
-  const [[summary]] = await pool.query("SELECT COALESCE(SUM(CASE WHEN status IN ('paid', 'settled') AND created_at >= UTC_DATE() THEN amount ELSE 0 END), 0) AS today_gmv, COUNT(CASE WHEN status IN ('paid', 'settled') AND created_at >= UTC_DATE() THEN 1 END) AS today_paid_orders, COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) AS pending_amount, COUNT(CASE WHEN status = 'refunded' THEN 1 END) AS refunded_orders, COUNT(*) AS total_orders FROM orders");
+  const [[summary]] = await pool.query("SELECT COALESCE(SUM(CASE WHEN status IN ('paid', 'settled') AND created_at >= UTC_DATE() THEN amount ELSE 0 END), 0) AS today_gmv, COUNT(CASE WHEN status IN ('paid', 'settled') AND created_at >= UTC_DATE() THEN 1 END) AS today_paid_orders, COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) AS pending_amount, COUNT(CASE WHEN status = 'refunded' THEN 1 END) AS refunded_orders, COUNT(*) AS total_orders FROM orders");
   res.json({ items: rows.map(mapOrder), summary: { todayGmv: Number(summary.today_gmv), todayPaidOrders: Number(summary.today_paid_orders), pendingAmount: Number(summary.pending_amount), refundRate: summary.total_orders ? Number(summary.refunded_orders) / Number(summary.total_orders) : 0, riskIntercepted: 0 } });
 }));
 
