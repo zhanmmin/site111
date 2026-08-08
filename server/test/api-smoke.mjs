@@ -38,6 +38,11 @@ async function main() {
   for (const path of ["/api/creator/me", "/api/creator/contents", "/api/creator/orders", "/api/creator/payouts", "/api/creator/settings", "/api/creator/analytics"]) {
     await request(path, { token: creatorToken });
   }
+  const creatorContents = await request("/api/creator/contents", { token: creatorToken });
+  const secondCreatorLogin = await request("/api/creator/auth/login", { method: "POST", body: { email: "studio@linjian.cn", password: creatorPassword } });
+  const secondCreatorContents = await request("/api/creator/contents", { token: secondCreatorLogin.body.token });
+  const creatorContentIds = new Set(creatorContents.body.items.map((item) => item.id));
+  assert.equal(secondCreatorContents.body.items.some((item) => creatorContentIds.has(item.id)), false, "creator content must be isolated by account");
   for (const path of ["/api/admin/overview", "/api/admin/contents", "/api/admin/users", "/api/admin/orders", "/api/admin/settings", "/api/admin/audit-logs"]) {
     await request(path, { token: adminToken });
   }

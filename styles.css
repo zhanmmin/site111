@@ -623,6 +623,9 @@ img { display: block; max-width: 100%; }
 .content-library-mode i { color: #6d8ac3; font-size: 13px; }
 .content-library-price { color: #52616a; font: 600 11px "DM Sans", sans-serif; white-space: nowrap; }
 .content-library-status { color: var(--mint); }
+.content-library-status.is-pending { color: #ae7c4d; }
+.content-library-status.is-rejected, .content-library-status.is-unpublished { color: #b56e68; }
+.content-library-status.is-draft { color: #879198; }
 .content-library-status i { font-size: 13px; }
 .content-library-actions { display: flex; align-items: center; gap: 3px; }
 .content-library-actions button { padding: 6px 7px; color: #6e7b80; background: transparent; border-radius: 4px; font-size: 9px; white-space: nowrap; }

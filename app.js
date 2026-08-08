@@ -373,11 +373,12 @@ function applyContentRecord(content) {
 function renderContentLibrary() {
   const target = $("#content-library");
   if (!target) return;
-  const contents = Array.isArray(state.contents)
-    ? state.contents.filter((content) => content.published === true || ["approved", "published"].includes(content.status))
-    : [];
+  const loggedIn = !CREATOR_MANAGEMENT_ONLINE || (creatorApiMode && state.session?.loggedIn);
+  const contents = loggedIn && Array.isArray(state.contents) ? state.contents : [];
   if (!contents.length) {
-    target.innerHTML = '<div class="content-library-empty"><i class="ph ph-folder-open"></i><strong>还没有已发布内容</strong><span>创建第一条内容后，公开链接和状态会显示在这里。</span><button class="button button-outline" type="button" data-action="open-create">新建内容</button></div>';
+    target.innerHTML = loggedIn
+      ? '<div class="content-library-empty"><i class="ph ph-folder-open"></i><strong>还没有内容</strong><span>创建第一条内容后，它会只出现在当前账号的内容列表中。</span><button class="button button-outline" type="button" data-action="open-create">新建内容</button></div>'
+      : '<div class="content-library-empty"><i class="ph ph-user-circle"></i><strong>请先登录查看你的内容</strong><span>登录后这里只会展示当前账号创建的内容，不同账号互不混淆。</span><button class="button button-primary" type="button" data-action="open-login">登录创作者后台</button></div>';
     return;
   }
   target.innerHTML = contents.map((content) => {
@@ -385,9 +386,15 @@ function renderContentLibrary() {
     const icon = contentModeIcons[content.mode] || contentModeIcons.image;
     const link = publicLinkFor(content.id);
     const isCurrent = getPublicLinkId(state.link) === content.id;
-    const statusLabel = "已发布";
-    const statusIcon = "ph-check-circle";
-    return '<article class="content-library-row ' + (isCurrent ? 'is-current' : '') + '" data-content-id="' + escapeHtml(content.id) + '"><div class="content-library-main"><span class="content-library-icon"><i class="ph ' + icon + '"></i></span><div><strong>' + escapeHtml(content.title) + '</strong><span>' + escapeHtml(content.id) + ' · 发布时间：' + escapeHtml(formatDateTime(content.publishedAt || content.submittedAt)) + '</span><small class="content-library-link" title="' + escapeHtml(link) + '">' + escapeHtml(link) + '</small></div></div><span class="content-library-mode"><i class="ph ' + icon + '"></i>' + escapeHtml(mode.label) + '</span><strong class="content-library-price">¥ ' + escapeHtml(formatMoney(content.price)) + '<small>' + escapeHtml(String(content.sales || 0)) + ' 次支付</small></strong><span class="content-library-status"><i class="ph ' + statusIcon + '"></i> ' + statusLabel + (isCurrent ? ' · 当前编辑' : '') + '</span><div class="content-library-actions"><button type="button" data-action="edit-content" data-content-id="' + escapeHtml(content.id) + '">编辑</button><button type="button" data-action="open-public-link" data-content-id="' + escapeHtml(content.id) + '">打开</button><button type="button" data-action="copy-content-link" data-content-id="' + escapeHtml(content.id) + '">复制链接</button></div></article>';
+    const statusMeta = {
+      approved: ["已发布", "ph-check-circle", "is-approved"],
+      published: ["已发布", "ph-check-circle", "is-approved"],
+      pending: ["待审核", "ph-hourglass-medium", "is-pending"],
+      rejected: ["已驳回", "ph-x-circle", "is-rejected"],
+      unpublished: ["已下架", "ph-eye-slash", "is-unpublished"],
+    }[content.status] || ["草稿", "ph-file-dashed", "is-draft"];
+    const [statusLabel, statusIcon, statusClass] = statusMeta;
+    return '<article class="content-library-row ' + (isCurrent ? 'is-current' : '') + '" data-content-id="' + escapeHtml(content.id) + '"><div class="content-library-main"><span class="content-library-icon"><i class="ph ' + icon + '"></i></span><div><strong>' + escapeHtml(content.title) + '</strong><span>' + escapeHtml(content.id) + ' · 提交时间：' + escapeHtml(formatDateTime(content.publishedAt || content.submittedAt)) + '</span><small class="content-library-link" title="' + escapeHtml(link) + '">' + escapeHtml(link) + '</small></div></div><span class="content-library-mode"><i class="ph ' + icon + '"></i>' + escapeHtml(mode.label) + '</span><strong class="content-library-price">¥ ' + escapeHtml(formatMoney(content.price)) + '<small>' + escapeHtml(String(content.sales || 0)) + ' 次支付</small></strong><span class="content-library-status ' + statusClass + '"><i class="ph ' + statusIcon + '"></i> ' + statusLabel + (isCurrent ? ' · 当前编辑' : '') + '</span><div class="content-library-actions"><button type="button" data-action="edit-content" data-content-id="' + escapeHtml(content.id) + '">编辑</button><button type="button" data-action="open-public-link" data-content-id="' + escapeHtml(content.id) + '">打开</button><button type="button" data-action="copy-content-link" data-content-id="' + escapeHtml(content.id) + '">复制链接</button></div></article>';
   }).join("");
 }
 
