@@ -49,6 +49,8 @@ img { display: block; max-width: 100%; }
 .publish-button i { font-size: 15px; }
 .profile-menu { display: inline-flex; align-items: center; gap: 7px; padding: 0; color: #e9eff6; background: transparent; font-size: 11px; }
 .profile-menu span { display: grid; place-items: center; width: 34px; height: 34px; color: #18304f; background: #e8e5dd; border-radius: 50%; }
+.profile-menu span.is-guest { color: #718095; background: #f0eee9; }
+.profile-menu span.is-guest i { color: inherit; font-size: 16px; }
 .profile-menu i { color: #8fa4bd; font-size: 14px; }
 .header-menu-button { display: none; place-items: center; width: 34px; height: 34px; padding: 0; color: #e9eff6; background: transparent; border: 1px solid rgba(255,255,255,.26); border-radius: 5px; }
 .header-menu-button i { font-size: 18px; }

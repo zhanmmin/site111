@@ -620,7 +620,11 @@ function renderSession() {
   const initial = $("#profile-initial");
   const loggedIn = Boolean(session.loggedIn);
   const emailInitial = String(session.email || "").trim().match(/[A-Za-z0-9]/)?.[0]?.toUpperCase();
-  if (initial) initial.textContent = loggedIn && emailInitial ? emailInitial : "林";
+  if (initial) {
+    initial.classList.toggle("is-guest", !loggedIn);
+    if (loggedIn && emailInitial) initial.textContent = emailInitial;
+    else initial.innerHTML = '<i class="ph ph-user" aria-hidden="true"></i>';
+  }
   if (profileButton) {
     const label = loggedIn ? "打开账户设置" : "登录创作者后台";
     profileButton.title = label;

@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css" />
-    <link rel="stylesheet" href="/styles.css?v=20260808qa2" />
+    <link rel="stylesheet" href="/styles.css?v=20260808qa3" />
   </head>
   <body>
     <div class="site-shell">
@@ -27,7 +27,7 @@
           <div class="site-header-actions">
             <span class="save-status"><i class="ph ph-circle-fill"></i> 已保存 <small>刚刚</small></span>
             <button class="header-help" type="button" data-action="open-guide">使用指南 <i class="ph ph-question"></i></button>
-            <button class="profile-menu" id="profile-menu" type="button" data-action="open-login" aria-label="登录创作者后台" title="登录创作者后台"><span id="profile-initial">林</span><i class="ph ph-gear"></i></button>
+            <button class="profile-menu" id="profile-menu" type="button" data-action="open-login" aria-label="登录创作者后台" title="登录创作者后台"><span id="profile-initial" class="is-guest"><i class="ph ph-user" aria-hidden="true"></i></span><i class="ph ph-gear"></i></button>
             <button class="header-menu-button" type="button" data-action="toggle-site-menu" aria-label="打开网站导航" aria-expanded="false"><i class="ph ph-list"></i></button>
           </div>
         </div>
@@ -103,7 +103,7 @@
     <div class="modal-backdrop" id="publish-success-modal" hidden><div class="modal-panel publish-success-panel" role="dialog" aria-modal="true" aria-labelledby="publish-result-title"><div class="publish-result-mark"><i class="ph ph-check"></i></div><span class="eyebrow">PUBLISHED</span><h2 id="publish-result-title">发布成功</h2><p id="publish-result-description">安全链接已生成，现在可以复制并分享给你的受众。</p><div class="publish-result-content"><strong id="publish-result-content-title">内容已发布</strong><span id="publish-result-content-meta">公开页面已准备好</span></div><label class="field-label">公开链接<div class="link-input publish-link-input"><input id="published-link" value="" readonly aria-label="已发布内容公开链接" /><button type="button" data-action="copy-published-link">复制</button></div></label><p class="helper-text"><i class="ph ph-shield-check"></i> 访问规则和价格已随内容保存</p><div class="publish-result-actions"><button class="button button-outline" type="button" data-action="open-published-link"><i class="ph ph-arrow-up-right"></i> 打开公开页面</button><button class="button button-primary" type="button" data-action="close-modal">完成</button></div><button class="ghost-icon publish-result-close" type="button" data-action="close-modal" aria-label="关闭"><i class="ph ph-x"></i></button></div></div>
     <div class="modal-backdrop" id="login-modal" hidden><div class="modal-panel login-panel" role="dialog" aria-modal="true" aria-labelledby="login-title"><div class="modal-heading"><div><span class="eyebrow">ACCOUNT ACCESS</span><h2 id="login-title">登录创作者后台</h2><p>登录后管理内容、订单和收款。</p></div><button class="ghost-icon" type="button" data-action="close-modal" aria-label="关闭"><i class="ph ph-x"></i></button></div><form id="login-form"><label class="form-label">邮箱<input name="email" type="email" autocomplete="email" placeholder="creator@example.com" required /></label><label class="form-label">密码<input name="password" type="password" minlength="6" autocomplete="current-password" placeholder="至少 6 位字符" required /></label><p class="form-error" id="login-form-error" role="alert" hidden></p><button class="button button-primary full-width" type="submit"><i class="ph ph-sign-in"></i> 登录</button><p class="login-demo-note"><i class="ph ph-info"></i> 演示环境只保存登录状态，不保存密码。</p></form></div></div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260808qa2"></script>
-    <script src="/admin.js?v=20260808qa2"></script>
+    <script src="/app.js?v=20260808qa3"></script>
+    <script src="/admin.js?v=20260808qa3"></script>
   </body>
 </html>
