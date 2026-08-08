@@ -574,6 +574,16 @@ img { display: block; max-width: 100%; }
 .admin-log-list b { color: #889598; font-size: 8px; font-weight: 500; text-align: right; }
 .admin-toast { position: fixed; left: 50%; bottom: 27px; z-index: 40; max-width: calc(100% - 32px); padding: 11px 16px; color: white; background: var(--navy); border: 1px solid rgba(170,200,242,.2); border-radius: 6px; box-shadow: 0 12px 35px rgba(0,0,0,.2); font-size: 11px; opacity: 0; pointer-events: none; transform: translate(-50%, 12px); transition: .25s ease; }
 .admin-toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
+.admin-detail-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px; background: rgba(4, 17, 35, .58); }
+.admin-detail-panel { width: min(100%, 560px); max-height: min(760px, 90vh); overflow: auto; padding: 26px; background: #fffdfa; border-radius: 7px; box-shadow: 0 28px 90px rgba(0, 0, 0, .3); }
+.admin-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding-bottom: 18px; border-bottom: 1px solid #e3e6e1; }
+.admin-detail-heading h2 { margin: 7px 0 0; color: var(--navy); font-size: 26px; font-weight: 500; letter-spacing: -.04em; }
+.admin-detail-heading .admin-icon-button { color: #62717a; border-color: #d7dcd8; }
+.admin-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 22px; margin: 8px 0 22px; }
+.admin-detail-grid > div { min-width: 0; padding: 14px 0; border-bottom: 1px solid #e6e9e5; }
+.admin-detail-grid span, .admin-detail-grid strong { display: block; }
+.admin-detail-grid span { color: #919c9e; font-size: 9px; }
+.admin-detail-grid strong { margin-top: 6px; overflow-wrap: anywhere; color: #53626a; font-size: 11px; font-weight: 600; }
 .public-route-body { min-height: 100vh; color: var(--text); background: #f3f4f0; }
 .public-route-shell { width: min(calc(100% - 48px), 920px); margin: 0 auto; padding: 28px 0 48px; }
 .public-route-header { display: flex; align-items: center; justify-content: space-between; min-height: 48px; border-bottom: 1px solid #dfe2dd; }
@@ -748,4 +758,6 @@ img { display: block; max-width: 100%; }
   .admin-table-toolbar { padding-inline: 15px; }
   .admin-table-head, .admin-table-row { padding-inline: 15px; }
   .admin-login-card { padding: 28px 22px; }
+  .admin-detail-panel { padding: 21px 17px; }
+  .admin-detail-grid { grid-template-columns: 1fr; }
 }

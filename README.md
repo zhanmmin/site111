@@ -37,3 +37,22 @@ COMPOSE_PROJECT_NAME=lumen-pass docker-compose up --build
 启动后访问 `http://127.0.0.1:8787/admin`。API 健康检查为 `/api/health`。数据库迁移和演示数据会在 API 容器启动时自动执行；管理员账号仍为 `admin@lumenpass.com` / `admin123`，演示创作者账号可使用 `hello@lumenpass.com` / `creator123`。
 
 如果单独运行 API，先复制 `server/.env.example` 为 `server/.env`，再执行 `npm install`、`npm run migrate`、`npm run seed` 和 `npm start`。生产环境必须替换 `JWT_SECRET`、MySQL 密码，并通过部署环境注入 `MYSQL_*` 配置，不把密钥提交到仓库。
+
+## 测试
+
+服务端语法和内容交付规则测试：
+
+```bash
+cd server
+npm run check
+npm test
+```
+
+启动完整 Docker Compose 环境后，可执行 40 项 API 端到端回归，覆盖登录、权限隔离、内容交付、支付解锁、一次性与两小时授权、图片下载、管理员统计和异常输入：
+
+```bash
+cd server
+npm run smoke
+```
+
+演示种子只补充缺失的演示数据和素材，不会在服务重启或再次部署时覆盖管理员审核状态、创作者资料、订单状态或既有内容。

@@ -4,6 +4,7 @@ const express = require("express");
 const cors = require("cors");
 const { getPool, pingDatabase } = require("./db");
 const { loginAdmin, loginCreator, requireAdmin, requireCreator } = require("./auth");
+const { extensionForMimeType, getDeliveryIssue, parseImageDataUrl, requiredAssetSlots } = require("./content");
 
 const app = express();
 const staticRoot = path.resolve(__dirname, "../..");
@@ -93,14 +94,6 @@ function toDataUrl(buffer, mimeType) {
   return buffer ? `data:${mimeType || "application/octet-stream"};base64,${Buffer.from(buffer).toString("base64")}` : "";
 }
 
-function parseDataUrl(value) {
-  const match = String(value || "").match(/^data:([^;]+);base64,(.+)$/);
-  if (!match) return null;
-  const data = Buffer.from(match[2], "base64");
-  if (!data.length) return null;
-  return { mimeType: match[1], data };
-}
-
 function randomId(prefix) {
   return `${prefix}-${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${crypto.randomBytes(3).toString("hex")}`.toUpperCase();
 }
@@ -155,12 +148,19 @@ function mapPublicContent(row, assets) {
 async function saveAssets(executor, contentId, images = {}) {
   for (const slot of ["primary", "secondary"]) {
     const item = images[slot] || {};
-    const original = parseDataUrl(item.originalData || item.data || "");
-    const preview = parseDataUrl(item.previewData || item.preview || "");
+    const original = parseImageDataUrl(item.originalData || item.data || "");
+    const preview = parseImageDataUrl(item.previewData || item.preview || "");
     if (!original && !preview) continue;
     const mimeType = original?.mimeType || preview?.mimeType || "image/jpeg";
     await executor.query("INSERT INTO content_assets (content_id, slot, original_blob, preview_blob, mime_type, file_size) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE original_blob = VALUES(original_blob), preview_blob = VALUES(preview_blob), mime_type = VALUES(mime_type), file_size = VALUES(file_size)", [contentId, slot, original?.data || null, preview?.data || null, mimeType, original?.data?.length || null]);
   }
+}
+
+async function getContentDeliveryIssue(content, executor = getPool()) {
+  const requiredSlots = requiredAssetSlots(content?.mode);
+  if (!requiredSlots.length) return getDeliveryIssue(content);
+  const [assets] = await executor.query("SELECT slot FROM content_assets WHERE content_id = ? AND original_blob IS NOT NULL", [content.id]);
+  return getDeliveryIssue(content, assets.map((asset) => asset.slot));
 }
 
 async function createAccessGrant(connection, orderId, contentId, rule) {
@@ -223,14 +223,16 @@ app.get("/api/public/contents/:id", asyncRoute(async (req, res) => {
   const [rows] = await getPool().query("SELECT c.*, u.display_name AS creator FROM contents c JOIN creator_users u ON u.id = c.creator_id WHERE c.id = ? AND c.status = 'approved' LIMIT 1", [req.params.id]);
   const content = rows[0];
   if (!content) return res.status(404).json({ error: "NOT_FOUND", message: "公开内容不存在或尚未发布" });
+  if (await getContentDeliveryIssue(content)) return res.status(404).json({ error: "CONTENT_UNAVAILABLE", message: "公开内容暂不可用" });
   res.json(mapPublicContent(content, await getContentAssets(content.id)));
 }));
 
 app.post("/api/public/contents/:id/checkout", asyncRoute(async (req, res) => {
   const pool = getPool();
-  const [rows] = await pool.query("SELECT id, creator_id, title, price, access_rule, status FROM contents WHERE id = ? AND status = 'approved' LIMIT 1", [req.params.id]);
+  const [rows] = await pool.query("SELECT id, creator_id, title, mode, price, access_rule, link_content, text_content, sensitive_text, status FROM contents WHERE id = ? AND status = 'approved' LIMIT 1", [req.params.id]);
   const content = rows[0];
   if (!content) return res.status(404).json({ error: "NOT_FOUND", message: "公开内容不存在或尚未发布" });
+  if (await getContentDeliveryIssue(content)) return res.status(409).json({ error: "CONTENT_INCOMPLETE", message: "内容交付配置不完整，暂时无法支付" });
   const buyerName = String(req.body?.buyerName || "当前访客").trim().slice(0, 100) || "当前访客";
   const buyerEmail = String(req.body?.buyerEmail || "").trim().slice(0, 190) || null;
   const orderNo = randomId("LP");
@@ -277,12 +279,15 @@ app.get("/api/public/access/:token/download/:slot", asyncRoute(async (req, res) 
   const [rows] = await getPool().query("SELECT original_blob, mime_type FROM content_assets WHERE content_id = ? AND slot = ? LIMIT 1", [grant.id, req.params.slot]);
   const asset = rows[0];
   if (!asset?.original_blob) return res.status(404).json({ error: "NOT_FOUND", message: "原图不存在" });
-  res.setHeader("Content-Type", asset.mime_type || "application/octet-stream");
-  res.setHeader("Content-Disposition", `attachment; filename=\"${grant.id}-${req.params.slot}.jpg\"`);
+  const mimeType = asset.mime_type || "application/octet-stream";
+  res.setHeader("Content-Type", mimeType);
+  res.setHeader("Content-Disposition", `attachment; filename=\"${grant.id}-${req.params.slot}.${extensionForMimeType(mimeType)}\"`);
   res.send(asset.original_blob);
 }));
 
 app.post("/api/public/contents/:id/report", asyncRoute(async (req, res) => {
+  const [[content]] = await getPool().query("SELECT id FROM contents WHERE id = ? AND status = 'approved' LIMIT 1", [req.params.id]);
+  if (!content) return res.status(404).json({ error: "NOT_FOUND", message: "公开内容不存在或尚未发布" });
   const reason = String(req.body?.reason || "其他问题").trim().slice(0, 255);
   const detail = String(req.body?.detail || "").trim().slice(0, 2000) || null;
   await getPool().query("INSERT INTO reports (content_id, reporter_name, reason, detail, priority, status) VALUES (?, ?, ?, ?, 'normal', 'open')", [req.params.id, String(req.body?.reporterName || "访客").trim().slice(0, 100), reason, detail]);
@@ -382,11 +387,11 @@ app.post("/api/creator/contents", asyncRoute(async (req, res) => {
   const title = String(body.title || "").trim().slice(0, 160);
   const price = Number(body.price);
   const images = body.images || {};
-  const hasPrimaryImage = Boolean(parseDataUrl(images.primary?.originalData || images.primary?.data || ""));
-  const hasSecondaryImage = Boolean(parseDataUrl(images.secondary?.originalData || images.secondary?.data || ""));
+  const hasPrimaryImage = Boolean(parseImageDataUrl(images.primary?.originalData || images.primary?.data || ""));
+  const hasSecondaryImage = Boolean(parseImageDataUrl(images.secondary?.originalData || images.secondary?.data || ""));
   const linkOrText = String(body.linkContent || body.textContent || "").trim();
   const sensitiveText = String(body.sensitiveText || "").trim();
-  if (!Object.keys(modeLabels).includes(mode) || !title || !Number.isFinite(price) || price <= 0) return res.status(400).json({ error: "INVALID_INPUT", message: "内容模式、标题和价格不能为空" });
+  if (!Object.keys(modeLabels).includes(mode) || !title || !Number.isFinite(price) || price <= 0 || price > 9999) return res.status(400).json({ error: "INVALID_INPUT", message: "内容模式、标题和价格不能为空，价格需在 0.01 至 9999 元之间" });
   if (mode === "image" && !hasPrimaryImage) return res.status(400).json({ error: "INVALID_INPUT", message: "图片内容必须包含原图" });
   if (mode === "dual" && (!hasPrimaryImage || !hasSecondaryImage)) return res.status(400).json({ error: "INVALID_INPUT", message: "双图内容必须包含两张原图" });
   if (mode === "link" && !linkOrText) return res.status(400).json({ error: "INVALID_INPUT", message: "网址或文字内容不能为空" });
@@ -419,7 +424,7 @@ app.patch("/api/creator/contents/:id", asyncRoute(async (req, res) => {
   const linkContent = body.linkContent === undefined ? String(current.link_content || "").trim() : String(body.linkContent || "").trim();
   const textContent = body.textContent === undefined ? String(current.text_content || "").trim() : String(body.textContent || "").trim();
   const sensitiveText = body.sensitiveText === undefined ? String(current.sensitive_text || "").trim() : String(body.sensitiveText || "").trim();
-  if (!Object.keys(modeLabels).includes(mode) || !title || !Number.isFinite(price) || price <= 0) return res.status(400).json({ error: "INVALID_INPUT", message: "内容模式、标题和价格不能为空" });
+  if (!Object.keys(modeLabels).includes(mode) || !title || !Number.isFinite(price) || price <= 0 || price > 9999) return res.status(400).json({ error: "INVALID_INPUT", message: "内容模式、标题和价格不能为空，价格需在 0.01 至 9999 元之间" });
   if (body.rule !== undefined && !["window", "once", "two_hours", "two-hours"].includes(String(body.rule))) return res.status(400).json({ error: "INVALID_INPUT", message: "访问规则无效" });
   if (mode === "link" && !(linkContent || textContent)) return res.status(400).json({ error: "INVALID_INPUT", message: "网址或文字内容不能为空" });
   if (mode === "sensitive" && !sensitiveText) return res.status(400).json({ error: "INVALID_INPUT", message: "密码文字内容不能为空" });
@@ -427,7 +432,7 @@ app.patch("/api/creator/contents/:id", asyncRoute(async (req, res) => {
     const images = body.images || {};
     const requiredSlots = mode === "dual" ? ["primary", "secondary"] : ["primary"];
     if (body.images) {
-      const missing = requiredSlots.some((slot) => !parseDataUrl(images[slot]?.originalData || images[slot]?.data || ""));
+      const missing = requiredSlots.some((slot) => !parseImageDataUrl(images[slot]?.originalData || images[slot]?.data || ""));
       if (missing) return res.status(400).json({ error: "INVALID_INPUT", message: mode === "dual" ? "双图内容必须包含两张原图" : "图片内容必须包含原图" });
     } else {
       const [assets] = await getPool().query("SELECT slot FROM content_assets WHERE content_id = ? AND original_blob IS NOT NULL", [req.params.id]);
@@ -455,7 +460,7 @@ app.get("/api/admin/overview", asyncRoute(async (req, res) => {
   const [[creators]] = await pool.query("SELECT COUNT(*) AS value FROM creator_users WHERE status = 'active'");
   const [[pendingContents]] = await pool.query("SELECT COUNT(*) AS value FROM contents WHERE status = 'pending'");
   const [[openReports]] = await pool.query("SELECT COUNT(*) AS value FROM reports WHERE status IN ('open', 'processing')");
-  const [[approvedToday]] = await pool.query("SELECT COUNT(*) AS value FROM contents WHERE status = 'approved' AND submitted_at >= UTC_DATE()");
+  const [[approvedToday]] = await pool.query("SELECT COUNT(*) AS value FROM contents WHERE status = 'approved' AND published_at >= UTC_DATE()");
   const [[reviewRisk]] = await pool.query("SELECT COUNT(*) AS value FROM contents WHERE risk_level IN ('review', 'high') AND status = 'pending'");
   const [activity] = await pool.query("SELECT action, resource_type, resource_id, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 8");
   res.json({ gmv: Number(gmv.value), orderCount: Number(gmv.order_count), activeCreators: Number(creators.value), pendingContents: Number(pendingContents.value), openReports: Number(openReports.value), approvedToday: Number(approvedToday.value), reviewRisk: Number(reviewRisk.value), activity: activity.map((item) => ({ ...item, created_at: toTime(item.created_at) })) });
@@ -475,6 +480,12 @@ app.patch("/api/admin/contents/:id/status", asyncRoute(async (req, res) => {
   const status = String(req.body?.status || "");
   const allowed = ["pending", "approved", "rejected", "unpublished"];
   if (!allowed.includes(status)) return res.status(400).json({ error: "INVALID_STATUS", message: "不支持的内容状态" });
+  if (status === "approved") {
+    const [[content]] = await getPool().query("SELECT id, mode, link_content, text_content, sensitive_text FROM contents WHERE id = ? LIMIT 1", [req.params.id]);
+    if (!content) return res.status(404).json({ error: "NOT_FOUND", message: "内容不存在" });
+    const issue = await getContentDeliveryIssue(content);
+    if (issue) return res.status(409).json({ error: "CONTENT_INCOMPLETE", message: issue });
+  }
   const [result] = await getPool().query("UPDATE contents SET status = ?, published_at = IF(? = 'approved', COALESCE(published_at, UTC_TIMESTAMP()), NULL) WHERE id = ?", [status, status, req.params.id]);
   if (!result.affectedRows) return res.status(404).json({ error: "NOT_FOUND", message: "内容不存在" });
   await writeAudit(req, `content.${status}`, "content", req.params.id, { status });
@@ -485,7 +496,7 @@ app.get("/api/admin/users", asyncRoute(async (req, res) => {
   const values = [];
   let where = "";
   if (req.query.q) { where = "WHERE u.display_name LIKE ? OR u.email LIKE ?"; const query = `%${String(req.query.q)}%`; values.push(query, query); }
-  const [rows] = await getPool().query(`SELECT u.id, u.display_name, u.email, u.status, u.verified_at, u.last_active_at, COUNT(DISTINCT c.id) AS content_count, COALESCE(SUM(CASE WHEN o.status IN ('paid', 'settled') THEN o.amount ELSE 0 END), 0) AS revenue FROM creator_users u LEFT JOIN contents c ON c.creator_id = u.id LEFT JOIN orders o ON o.creator_id = u.id ${where} GROUP BY u.id ORDER BY u.last_active_at DESC`, values);
+  const [rows] = await getPool().query(`SELECT u.id, u.display_name, u.email, u.status, u.verified_at, u.last_active_at, COALESCE(c.content_count, 0) AS content_count, COALESCE(o.revenue, 0) AS revenue FROM creator_users u LEFT JOIN (SELECT creator_id, COUNT(*) AS content_count FROM contents GROUP BY creator_id) c ON c.creator_id = u.id LEFT JOIN (SELECT creator_id, SUM(CASE WHEN status IN ('paid', 'settled') THEN amount ELSE 0 END) AS revenue FROM orders GROUP BY creator_id) o ON o.creator_id = u.id ${where} ORDER BY u.last_active_at DESC`, values);
   res.json({ items: rows.map(mapUser) });
 }));
 

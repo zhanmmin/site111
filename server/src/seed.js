@@ -1,4 +1,6 @@
 const bcrypt = require("bcryptjs");
+const fs = require("fs");
+const path = require("path");
 const { getPool, closeDatabase } = require("./db");
 
 const creators = [
@@ -28,11 +30,29 @@ const orders = [
   ["LP-240805-0324", "PC-240805-0101", "林间照相馆", "三时四刻", 15, "paid", "2026-08-05 16:02:00"],
 ];
 
+const demoDeliveries = [
+  ["PC-240805-0101", "感谢支持这组春日花园作品。", null, null, null],
+  ["PC-240805-0102", "付款后可阅读完整采访整理稿。", null, "采访全文：从观察光线开始，建立自己的影像语言。", null],
+  ["PC-240805-0103", "付款后可打开预设包领取页面。", "https://example.com/lumen-presets", null, null],
+  ["PC-240805-0104", "该内容当前不可公开访问。", null, null, null],
+  ["PC-240805-0105", "感谢支持这组夏日人像双图。", null, null, null],
+  ["PC-240805-0106", "付款后可查看完整旅行路线。", null, "三日旅行路线：第一天旧城，第二天山谷，第三天湖畔。", null],
+  ["PC-240805-0107", "感谢支持城市黄昏摄影作品集。", null, null, null],
+  ["PC-240805-0108", "授权文字仅在本次安全会话中展示。", null, null, "LUMEN-DEMO-2026\n授权码：N8QF-72KX-PA4M"],
+];
+
+const demoImageSlots = new Map([
+  ["PC-240805-0101", ["primary"]],
+  ["PC-240805-0104", ["primary"]],
+  ["PC-240805-0105", ["primary", "secondary"]],
+  ["PC-240805-0107", ["primary"]],
+]);
+
 async function run() {
   const pool = getPool();
   const creatorPasswordHash = await bcrypt.hash("creator123", 10);
   for (const [name, email, bio, lastActive] of creators) {
-    await pool.query("INSERT INTO creator_users (display_name, email, password_hash, bio, status, verified_at, last_active_at) VALUES (?, ?, ?, ?, 'active', UTC_TIMESTAMP(), ?) ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), password_hash = VALUES(password_hash), bio = VALUES(bio), last_active_at = VALUES(last_active_at)", [name, email, creatorPasswordHash, bio, lastActive]);
+    await pool.query("INSERT INTO creator_users (display_name, email, password_hash, bio, status, verified_at, last_active_at) VALUES (?, ?, ?, ?, 'active', UTC_TIMESTAMP(), ?) ON DUPLICATE KEY UPDATE email = VALUES(email)", [name, email, creatorPasswordHash, bio, lastActive]);
   }
   const [creatorRows] = await pool.query("SELECT id, display_name FROM creator_users");
   const creatorMap = new Map(creatorRows.map((row) => [row.display_name, row.id]));
@@ -40,12 +60,22 @@ async function run() {
   const modeMap = { 图片: "image", 双图: "dual", "网址 / 文字": "link", 密码文字: "sensitive" };
   const riskMap = { low: "low", review: "review", high: "high" };
   for (const [id, title, mode, price, rule, status, risk, creator] of contents) {
-    await pool.query("INSERT INTO contents (id, creator_id, title, mode, price, access_rule, status, risk_level, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, IF(? = 'approved', UTC_TIMESTAMP(), NULL)) ON DUPLICATE KEY UPDATE title = VALUES(title), price = VALUES(price), access_rule = VALUES(access_rule), status = VALUES(status), risk_level = VALUES(risk_level)", [id, creatorMap.get(creator) || creatorMap.get("夜航者"), title, modeMap[mode] || mode, price, rule, statusMap[status], riskMap[risk], status]);
+    await pool.query("INSERT INTO contents (id, creator_id, title, mode, price, access_rule, status, risk_level, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, IF(? = 'approved', UTC_TIMESTAMP(), NULL)) ON DUPLICATE KEY UPDATE id = VALUES(id)", [id, creatorMap.get(creator) || creatorMap.get("夜航者"), title, modeMap[mode] || mode, price, rule, statusMap[status], riskMap[risk], status]);
+  }
+  for (const [id, note, linkContent, textContent, sensitiveText] of demoDeliveries) {
+    await pool.query("UPDATE contents SET note = COALESCE(NULLIF(note, ''), ?), link_content = COALESCE(NULLIF(link_content, ''), ?), text_content = COALESCE(NULLIF(text_content, ''), ?), sensitive_text = COALESCE(NULLIF(sensitive_text, ''), ?) WHERE id = ?", [note, linkContent, textContent, sensitiveText, id]);
+  }
+  const originalImage = fs.readFileSync(path.resolve(__dirname, "../../assets/unlocked-preview.png"));
+  const previewImage = fs.readFileSync(path.resolve(__dirname, "../../assets/locked-preview.png"));
+  for (const [contentId, slots] of demoImageSlots) {
+    for (const slot of slots) {
+      await pool.query("INSERT INTO content_assets (content_id, slot, original_blob, preview_blob, mime_type, file_size) VALUES (?, ?, ?, ?, 'image/png', ?) ON DUPLICATE KEY UPDATE original_blob = COALESCE(original_blob, VALUES(original_blob)), preview_blob = COALESCE(preview_blob, VALUES(preview_blob)), mime_type = COALESCE(mime_type, VALUES(mime_type)), file_size = COALESCE(file_size, VALUES(file_size))", [contentId, slot, originalImage, previewImage, originalImage.length]);
+    }
   }
   const contentRows = await pool.query("SELECT id, creator_id FROM contents").then(([rows]) => rows);
   const contentMap = new Map(contentRows.map((row) => [row.id, row.creator_id]));
   for (const [orderNo, contentId, creator, buyer, amount, status, createdAt] of orders) {
-    await pool.query("INSERT INTO orders (order_no, content_id, creator_id, buyer_name, amount, status, paid_at, created_at) VALUES (?, ?, ?, ?, ?, ?, IF(? IN ('paid', 'settled'), ? , NULL), ?) ON DUPLICATE KEY UPDATE status = VALUES(status), amount = VALUES(amount)", [orderNo, contentId, contentMap.get(contentId), buyer, amount, status, status, createdAt, createdAt]);
+    await pool.query("INSERT IGNORE INTO orders (order_no, content_id, creator_id, buyer_name, amount, status, paid_at, created_at) VALUES (?, ?, ?, ?, ?, ?, IF(? IN ('paid', 'settled'), ? , NULL), ?)", [orderNo, contentId, contentMap.get(contentId), buyer, amount, status, status, createdAt, createdAt]);
   }
   await closeDatabase();
   console.log("Demo data seeded");

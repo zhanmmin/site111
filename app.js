@@ -155,8 +155,11 @@ async function appApi(path, options = {}) {
     },
   });
   if (!response.ok) {
-    const error = new Error(`API ${response.status}`);
+    let payload = {};
+    try { payload = await response.json(); } catch (parseError) { /* keep the status fallback */ }
+    const error = new Error(payload.message || `API ${response.status}`);
     error.status = response.status;
+    error.code = payload.error || "";
     throw error;
   }
   return response.json();
@@ -364,13 +367,15 @@ function applyContentRecord(content) {
   state.imageData2 = content.imageData2 || "";
   state.previewData2 = content.previewData2 || "";
   state.imageName2 = content.imageName2 || "";
-  state.published = content.status !== "draft";
+  state.published = content.published === true || ["approved", "published"].includes(content.status);
 }
 
 function renderContentLibrary() {
   const target = $("#content-library");
   if (!target) return;
-  const contents = Array.isArray(state.contents) ? state.contents : [];
+  const contents = Array.isArray(state.contents)
+    ? state.contents.filter((content) => content.published === true || ["approved", "published"].includes(content.status))
+    : [];
   if (!contents.length) {
     target.innerHTML = '<div class="content-library-empty"><i class="ph ph-folder-open"></i><strong>还没有已发布内容</strong><span>创建第一条内容后，公开链接和状态会显示在这里。</span><button class="button button-outline" type="button" data-action="open-create">新建内容</button></div>';
     return;
@@ -380,8 +385,8 @@ function renderContentLibrary() {
     const icon = contentModeIcons[content.mode] || contentModeIcons.image;
     const link = publicLinkFor(content.id);
     const isCurrent = getPublicLinkId(state.link) === content.id;
-    const statusLabel = content.status === "pending" ? "审核中" : content.status === "rejected" ? "已驳回" : "已发布";
-    const statusIcon = content.status === "pending" ? "ph-hourglass-medium" : content.status === "rejected" ? "ph-warning-circle" : "ph-check-circle";
+    const statusLabel = "已发布";
+    const statusIcon = "ph-check-circle";
     return '<article class="content-library-row ' + (isCurrent ? 'is-current' : '') + '" data-content-id="' + escapeHtml(content.id) + '"><div class="content-library-main"><span class="content-library-icon"><i class="ph ' + icon + '"></i></span><div><strong>' + escapeHtml(content.title) + '</strong><span>' + escapeHtml(content.id) + ' · 发布时间：' + escapeHtml(formatDateTime(content.publishedAt || content.submittedAt)) + '</span><small class="content-library-link" title="' + escapeHtml(link) + '">' + escapeHtml(link) + '</small></div></div><span class="content-library-mode"><i class="ph ' + icon + '"></i>' + escapeHtml(mode.label) + '</span><strong class="content-library-price">¥ ' + escapeHtml(formatMoney(content.price)) + '<small>' + escapeHtml(String(content.sales || 0)) + ' 次支付</small></strong><span class="content-library-status"><i class="ph ' + statusIcon + '"></i> ' + statusLabel + (isCurrent ? ' · 当前编辑' : '') + '</span><div class="content-library-actions"><button type="button" data-action="edit-content" data-content-id="' + escapeHtml(content.id) + '">编辑</button><button type="button" data-action="open-public-link" data-content-id="' + escapeHtml(content.id) + '">打开</button><button type="button" data-action="copy-content-link" data-content-id="' + escapeHtml(content.id) + '">复制链接</button></div></article>';
   }).join("");
 }
@@ -402,7 +407,7 @@ function getRuleLabel(rule = state.rule) {
 function getExpiryLabel() {
   if (state.rule === "once") return "仅本次查看，关闭后失效";
   if (state.rule === "two-hours") return "支付后 2 小时有效";
-  return "支付后可查看，授权 2 小时有效";
+  return "支付后可重复查看，内容有效期内可访问";
 }
 
 function modeMediaContent(viewState, compact = false) {
@@ -469,7 +474,7 @@ function renderPreviewCard(target, viewState = "unpaid", modal = false) {
   const expired = viewState === "expired";
   const processing = viewState === "processing";
   const current = modeLabels[state.mode] || modeLabels.image;
-  const displayTitle = state.mode === "image" ? state.title : current.title;
+  const displayTitle = state.title || current.title;
   const hasLink = Boolean(safeHttpUrl(state.linkContent));
   const action = paid ? (state.mode === "link" && hasLink ? "安全打开网址" : "内容已解锁") : expired ? "重新支付查看" : processing ? "正在确认支付" : "立即支付查看";
   const actionIcon = paid ? (state.mode === "link" && hasLink ? "ph-arrow-up-right" : "ph-check") : processing ? "ph-spinner-gap" : "ph-credit-card";
@@ -510,7 +515,7 @@ function renderPublicPreview() {
 }
 
 function publicHomeLink() {
-  return window.location.protocol === "file:" ? "./index.html" : `${window.location.origin}/admin`;
+  return window.location.protocol === "file:" ? "./index.html" : `${window.location.origin}/`;
 }
 
 function renderPublicLoadingPage() {
@@ -542,11 +547,10 @@ function renderVisitorPage() {
 function renderOrders() {
   const filter = state.orderFilter || "all";
   const filteredOrders = filter === "all" ? state.orders : state.orders.filter((order) => order.status === filter);
-  const paidOrders = state.orders.filter((order) => ["paid", "settled"].includes(order.status));
-  const paidTotal = paidOrders.reduce((total, order) => total + Number(order.amount || 0), 0);
+  const settledTotal = state.orders.filter((order) => order.status === "settled").reduce((total, order) => total + Number(order.amount || 0), 0);
   const pendingTotal = state.orders.filter((order) => order.status === "paid").reduce((total, order) => total + Number(order.amount || 0), 0);
   $("#order-total").textContent = String(state.orders.length);
-  $("#order-settled-total")?.replaceChildren(document.createTextNode(`¥ ${formatMoney(paidTotal)}`));
+  $("#order-settled-total")?.replaceChildren(document.createTextNode(`¥ ${formatMoney(settledTotal)}`));
   $("#order-pending-total")?.replaceChildren(document.createTextNode(`¥ ${formatMoney(pendingTotal)}`));
   $("#order-table").innerHTML = filteredOrders.length ? filteredOrders.map((order) => {
     const settled = order.status === "settled";
@@ -857,16 +861,21 @@ function openCreateForm(content = null) {
 }
 
 function openPublishSuccessModal(wasEditing = false) {
+  const awaitingReview = creatorApiMode && !state.published;
+  const eyebrow = $("#publish-success-modal .eyebrow");
   const title = $("#publish-result-title");
   const description = $("#publish-result-description");
   const contentTitle = $("#publish-result-content-title");
   const contentMeta = $("#publish-result-content-meta");
   const linkInput = $("#published-link");
-  if (title) title.textContent = wasEditing ? "内容已保存" : "发布成功";
-  if (description) description.textContent = wasEditing ? "公开链接保持不变，你可以继续分享这条内容。" : "安全链接已生成，现在可以复制并分享给你的受众。";
+  const openButton = $('#publish-success-modal [data-action="open-published-link"]');
+  if (eyebrow) eyebrow.textContent = awaitingReview ? "SUBMITTED" : "PUBLISHED";
+  if (title) title.textContent = awaitingReview ? (wasEditing ? "修改已提交审核" : "内容已提交审核") : (wasEditing ? "内容已保存" : "发布成功");
+  if (description) description.textContent = awaitingReview ? "审核通过后公开链接会自动生效，现在可以先保存链接。" : (wasEditing ? "公开链接保持不变，你可以继续分享这条内容。" : "安全链接已生成，现在可以复制并分享给你的受众。");
   if (contentTitle) contentTitle.textContent = state.title || "付费内容";
   if (contentMeta) contentMeta.textContent = `${getRuleLabel()} · ¥ ${formatMoney(state.price)}`;
   if (linkInput) linkInput.value = state.link;
+  if (openButton) openButton.hidden = awaitingReview;
   openModal("publish-success-modal");
 }
 
@@ -890,7 +899,7 @@ function showToast(message) {
 
 function getRemainingTime() {
   if (state.rule === "once") return "本次查看有效，关闭后失效";
-  if (!state.authExpiresAt) return "授权有效期 2 小时";
+  if (!state.authExpiresAt) return "内容有效期内可重复查看";
   const remaining = Math.max(0, state.authExpiresAt - Date.now());
   const hours = Math.floor(remaining / 3600000);
   const minutes = Math.floor((remaining % 3600000) / 60000);
@@ -919,7 +928,7 @@ function startMockPayment() {
       }
     }
     visitorState = "paid";
-    state.authExpiresAt = state.rule === "once" ? null : Date.now() + 2 * 60 * 60 * 1000;
+    state.authExpiresAt = state.rule === "two-hours" ? Date.now() + 2 * 60 * 60 * 1000 : null;
     state.orders.unshift({ id: `LP-240803-00${13 + state.orders.length}`, customer: "当前访客", content: `${modeLabels[state.mode].title} · ${modeLabels[state.mode].label}`, amount: formatMoney(state.price), time: "刚刚", status: "paid", initial: "访" });
     saveState();
     renderVisitorPage();
@@ -1034,17 +1043,16 @@ function handleAction(action, element) {
     if (PUBLIC_CONTENT_ID && publicAccessToken && state.rule !== "once") {
       void (async () => {
         try {
-          const response = await fetch(`/api/public/access/${encodeURIComponent(publicAccessToken)}/download/${encodeURIComponent(item.slot)}`);
+          const downloadUrl = `/api/public/access/${encodeURIComponent(publicAccessToken)}/download/${encodeURIComponent(item.slot)}`;
+          const response = await fetch(downloadUrl, { method: "HEAD" });
           if (!response.ok) throw new Error("download-failed");
-          const blobUrl = URL.createObjectURL(await response.blob());
           const downloadLink = document.createElement("a");
-          downloadLink.href = blobUrl;
+          downloadLink.href = downloadUrl;
           downloadLink.download = item.filename;
           downloadLink.rel = "noopener";
           document.body.appendChild(downloadLink);
           downloadLink.click();
           downloadLink.remove();
-          window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
           showToast("图片下载已开始");
         } catch (error) {
           showToast("图片下载失败，请重新支付后重试");
@@ -1066,6 +1074,8 @@ function handleAction(action, element) {
   if (action === "copy-published-link") return copyText(state.link, "公开链接已复制");
   if (action === "open-published-link") {
     if (!state.link) return showToast("公开链接不存在");
+    const content = findContentById(getPublicLinkId(state.link));
+    if (creatorApiMode && content && content.status !== "approved") return showToast("内容审核通过后公开页面才会生效");
     window.open(state.link, "_blank", "noopener,noreferrer");
     return;
   }
