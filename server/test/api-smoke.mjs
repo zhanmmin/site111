@@ -47,6 +47,21 @@ async function main() {
   await request("/api/creator/contents", { token: creatorToken, method: "POST", body: { mode: "link", title: "无交付内容", price: 10, linkContent: "" }, expected: 400 });
   await request("/api/creator/contents", { token: creatorToken, method: "POST", body: { mode: "link", title: "超价内容", price: 10000, textContent: "test" }, expected: 400 });
   await request("/api/creator/contents", { token: creatorToken, method: "POST", body: { mode: "image", title: "不安全图片", price: 10, images: { primary: { data: `data:image/svg+xml;base64,${Buffer.from("<svg/>").toString("base64")}` } } }, expected: 400 });
+  if (process.env.SMOKE_LARGE_IMAGE === "1") {
+    const largeImage = Buffer.alloc(3 * 1024 * 1024, 1);
+    const smallPreview = Buffer.alloc(64 * 1024, 2);
+    await request("/api/creator/contents", {
+      token: creatorToken,
+      method: "POST",
+      body: {
+        mode: "image",
+        title: "大图分块写入回归",
+        price: 10,
+        images: { primary: { data: `data:image/jpeg;base64,${largeImage.toString("base64")}`, preview: `data:image/jpeg;base64,${smallPreview.toString("base64")}` } },
+      },
+      expected: 201,
+    });
+  }
 
   const publicCases = [
     ["PC-240805-0101", "春日花园", "image"],

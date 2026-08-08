@@ -2,6 +2,7 @@ const bcrypt = require("bcryptjs");
 const fs = require("fs");
 const path = require("path");
 const { getPool, closeDatabase } = require("./db");
+const { writeBlobInChunks } = require("./content");
 
 const creators = [
   ["夜航者", "hello@lumenpass.com", "记录光线、城市与被认真对待的内容。", "2026-08-05 17:52:00"],
@@ -69,7 +70,22 @@ async function run() {
   const previewImage = fs.readFileSync(path.resolve(__dirname, "../../assets/locked-preview.png"));
   for (const [contentId, slots] of demoImageSlots) {
     for (const slot of slots) {
-      await pool.query("INSERT INTO content_assets (content_id, slot, original_blob, preview_blob, mime_type, file_size) VALUES (?, ?, ?, ?, 'image/png', ?) ON DUPLICATE KEY UPDATE original_blob = COALESCE(original_blob, VALUES(original_blob)), preview_blob = COALESCE(preview_blob, VALUES(preview_blob)), mime_type = COALESCE(mime_type, VALUES(mime_type)), file_size = COALESCE(file_size, VALUES(file_size))", [contentId, slot, originalImage, previewImage, originalImage.length]);
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        await connection.execute("INSERT IGNORE INTO content_assets (content_id, slot, mime_type, file_size) VALUES (?, ?, 'image/png', ?)", [contentId, slot, originalImage.length]);
+        const [assets] = await connection.execute("SELECT original_blob IS NOT NULL AS has_original, preview_blob IS NOT NULL AS has_preview FROM content_assets WHERE content_id = ? AND slot = ? FOR UPDATE", [contentId, slot]);
+        const asset = assets[0] || {};
+        if (!asset.has_original) await writeBlobInChunks(connection, { contentId, slot, column: "original_blob", data: originalImage });
+        if (!asset.has_preview) await writeBlobInChunks(connection, { contentId, slot, column: "preview_blob", data: previewImage });
+        await connection.execute("UPDATE content_assets SET mime_type = COALESCE(mime_type, 'image/png'), file_size = COALESCE(file_size, ?) WHERE content_id = ? AND slot = ?", [originalImage.length, contentId, slot]);
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally {
+        connection.release();
+      }
     }
   }
   const contentRows = await pool.query("SELECT id, creator_id FROM contents").then(([rows]) => rows);

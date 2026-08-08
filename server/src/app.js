@@ -4,7 +4,7 @@ const express = require("express");
 const cors = require("cors");
 const { getPool, pingDatabase } = require("./db");
 const { loginAdmin, loginCreator, requireAdmin, requireCreator } = require("./auth");
-const { extensionForMimeType, getDeliveryIssue, parseImageDataUrl, requiredAssetSlots } = require("./content");
+const { extensionForMimeType, getDeliveryIssue, parseImageDataUrl, requiredAssetSlots, writeBlobInChunks } = require("./content");
 
 const app = express();
 const staticRoot = path.resolve(__dirname, "../..");
@@ -152,7 +152,9 @@ async function saveAssets(executor, contentId, images = {}) {
     const preview = parseImageDataUrl(item.previewData || item.preview || "");
     if (!original && !preview) continue;
     const mimeType = original?.mimeType || preview?.mimeType || "image/jpeg";
-    await executor.query("INSERT INTO content_assets (content_id, slot, original_blob, preview_blob, mime_type, file_size) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE original_blob = VALUES(original_blob), preview_blob = VALUES(preview_blob), mime_type = VALUES(mime_type), file_size = VALUES(file_size)", [contentId, slot, original?.data || null, preview?.data || null, mimeType, original?.data?.length || null]);
+    await executor.execute("INSERT INTO content_assets (content_id, slot, mime_type, file_size) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE mime_type = VALUES(mime_type), file_size = VALUES(file_size)", [contentId, slot, mimeType, original?.data?.length || null]);
+    if (original) await writeBlobInChunks(executor, { contentId, slot, column: "original_blob", data: original.data });
+    if (preview) await writeBlobInChunks(executor, { contentId, slot, column: "preview_blob", data: preview.data });
   }
 }
 

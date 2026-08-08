@@ -766,19 +766,29 @@ function readImageFile(file) {
   });
 }
 
+function dataUrlByteLength(value) {
+  const encoded = String(value || "").split(",")[1] || "";
+  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor(encoded.length * 3 / 4) - padding);
+}
+
 function optimizeImageData(dataUrl) {
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.onload = () => {
-      const maxSize = 2200;
-      const scale = Math.min(1, maxSize / Math.max(image.naturalWidth, image.naturalHeight));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-      const context = canvas.getContext("2d");
-      if (!context) return reject(new Error("canvas-not-supported"));
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL("image/jpeg", .9));
+      const attempts = [[2200, .86], [2000, .8], [1800, .76], [1600, .72], [1400, .68]];
+      for (const [maxSize, quality] of attempts) {
+        const scale = Math.min(1, maxSize / Math.max(image.naturalWidth, image.naturalHeight));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        const context = canvas.getContext("2d");
+        if (!context) return reject(new Error("canvas-not-supported"));
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const optimized = canvas.toDataURL("image/jpeg", quality);
+        if (dataUrlByteLength(optimized) <= 3 * 1024 * 1024) return resolve(optimized);
+      }
+      reject(new Error("image-too-large"));
     };
     image.onerror = () => reject(new Error("image-optimize-failed"));
     image.src = dataUrl;
@@ -831,7 +841,7 @@ async function handleImageInput(input) {
     renderImageUploadFields();
     showToast("图片已上传，预览图已生成");
   } catch (error) {
-    setCreateFormError("图片读取失败，请换一张图片重试");
+    setCreateFormError(error.message === "image-too-large" ? "图片压缩后仍超过 3 MB，请选择尺寸更小的图片" : "图片读取失败，请换一张图片重试");
   }
 }
 
